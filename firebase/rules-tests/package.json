@@ -1,0 +1,13 @@
+{
+  "name": "daily-expense-buddy-rules-tests",
+  "private": true,
+  "type": "module",
+  "description": "Firestore security rules tests. Run via: firebase emulators:exec --only firestore \"npm --prefix firebase/rules-tests test\"",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 rules.test.js"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
+    "firebase": "^13.0.0"
+  }
+}

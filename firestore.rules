@@ -1,0 +1,199 @@
+rules_version = '2';
+
+// Daily Expense Buddy – Cloud Firestore security rules.
+//
+// Principles
+// * Every document lives under users/{uid}; only the signed-in owner with a
+//   verified email can read or write it. The uid comes from the auth token,
+//   never from document data, so ownership cannot be reassigned.
+// * Writes are schema-validated (allowed keys, types, ranges).
+// * Expense updates must increment `version` by exactly one. An edit made
+//   from stale data (e.g. offline on another device) is rejected instead of
+//   silently overwriting a newer change.
+// * Timestamps must be server timestamps (== request.time).
+// * Premium entitlements can only be written by a trusted backend (Admin SDK
+//   bypasses these rules); clients can read and delete their own.
+// * Everything not matched below is denied.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn()
+        && request.auth.uid == uid
+        && request.auth.token.email_verified == true;
+    }
+
+    function data() {
+      return request.resource.data;
+    }
+
+    function isDate(v) {
+      return v is string
+        && v.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$')
+        && v >= '2000-01-01';
+    }
+
+    function isCurrency(v) {
+      return v is string && v.matches('^[A-Z]{3}$');
+    }
+
+    function optString(d, key, max) {
+      return !(key in d) || d[key] == null || (d[key] is string && d[key].size() <= max);
+    }
+
+    function isMinutes(v) {
+      return v is int && v >= 0 && v < 1440;
+    }
+
+    // 1e12 major units at up to 3 decimal places.
+    function isAmount(v) {
+      return v is int && v > 0 && v <= 1000000000000000;
+    }
+
+    match /users/{uid} {
+      allow get: if isOwner(uid);
+      allow list: if false;
+      allow create: if isOwner(uid)
+        && data().keys().hasOnly(['displayName', 'createdAt', 'schemaVersion'])
+        && data().displayName is string && data().displayName.size() <= 50
+        && data().createdAt == request.time
+        && data().schemaVersion is int;
+      allow update: if isOwner(uid)
+        && data().diff(resource.data).affectedKeys().hasOnly(['displayName'])
+        && data().displayName is string && data().displayName.size() <= 50;
+      allow delete: if isOwner(uid);
+
+      // ---------------------------------------------------------------
+      match /expenses/{expenseId} {
+        function validExpense(d) {
+          return d.keys().hasOnly(['amountMinor', 'currency', 'categoryId', 'date',
+                                   'note', 'merchant', 'paymentMethod',
+                                   'createdAt', 'updatedAt', 'version'])
+            && d.keys().hasAll(['amountMinor', 'currency', 'categoryId', 'date',
+                                'createdAt', 'updatedAt', 'version'])
+            && isAmount(d.amountMinor)
+            && isCurrency(d.currency)
+            && d.categoryId is string && d.categoryId.size() > 0 && d.categoryId.size() <= 64
+            && isDate(d.date)
+            && optString(d, 'note', 200)
+            && optString(d, 'merchant', 80)
+            && (!('paymentMethod' in d) || d.paymentMethod == null
+                || d.paymentMethod in ['cash', 'card', 'mobile', 'bank_transfer', 'wallet', 'other'])
+            && d.version is int
+            && d.updatedAt == request.time;
+        }
+
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && expenseId.size() <= 64
+          && validExpense(data())
+          && data().createdAt == request.time
+          && data().version == 1;
+        allow update: if isOwner(uid)
+          && validExpense(data())
+          && data().createdAt == resource.data.createdAt
+          && data().version == resource.data.version + 1;
+        allow delete: if isOwner(uid);
+      }
+
+      // ---------------------------------------------------------------
+      match /categories/{categoryId} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && categoryId.size() <= 64
+          && data().keys().hasOnly(['name', 'iconKey', 'colorIndex', 'archived', 'sortOrder', 'updatedAt'])
+          && data().name is string && data().name.size() > 0 && data().name.size() <= 40
+          && data().iconKey is string && data().iconKey.size() <= 32
+          && data().colorIndex is int && data().colorIndex >= 0 && data().colorIndex < 12
+          && data().archived is bool
+          && data().sortOrder is int
+          && data().updatedAt == request.time;
+        allow delete: if isOwner(uid);
+      }
+
+      // ---------------------------------------------------------------
+      match /budgets/{budgetId} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && data().keys().hasOnly(['amountMinor', 'currency', 'categoryId', 'updatedAt'])
+          && isAmount(data().amountMinor)
+          && isCurrency(data().currency)
+          && ((data().categoryId == null && budgetId == 'overall')
+              || (data().categoryId is string && budgetId == 'cat_' + data().categoryId))
+          && data().updatedAt == request.time;
+        allow delete: if isOwner(uid);
+      }
+
+      // One record per budget, month and threshold level; thresholds may only
+      // increase so an alert cannot be re-triggered within a month.
+      match /budget_alerts/{alertId} {
+        function validAlert() {
+          return data().keys().hasOnly(['monthKey', 'budgetId', 'threshold', 'updatedAt'])
+            && data().monthKey is string && data().monthKey.matches('^[0-9]{4}-(0[1-9]|1[0-2])$')
+            && data().budgetId is string && data().budgetId.size() <= 80
+            && alertId == data().monthKey + '_' + data().budgetId
+            && data().threshold is int && data().threshold > 0 && data().threshold <= 200
+            && data().updatedAt == request.time;
+        }
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid) && validAlert();
+        allow update: if isOwner(uid) && validAlert()
+          && data().threshold > resource.data.threshold;
+        allow delete: if isOwner(uid);
+      }
+
+      // ---------------------------------------------------------------
+      match /daily_status/{day} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && data().keys().hasOnly(['date', 'status', 'updatedAt'])
+          && isDate(data().date) && data().date == day
+          && data().status in ['completed', 'no_expenses']
+          && data().updatedAt == request.time;
+        allow delete: if isOwner(uid);
+      }
+
+      // ---------------------------------------------------------------
+      match /settings/{docId} {
+        function validReminders(r) {
+          return r is map
+            && r.keys().hasOnly(['enabled', 'timeMinutes', 'followUpsEnabled', 'followUpMinutes',
+                                 'quietHoursEnabled', 'quietStartMinutes', 'quietEndMinutes'])
+            && r.enabled is bool
+            && isMinutes(r.timeMinutes)
+            && r.followUpsEnabled is bool
+            && r.followUpMinutes is list && r.followUpMinutes.size() <= 3
+            && r.quietHoursEnabled is bool
+            && isMinutes(r.quietStartMinutes)
+            && isMinutes(r.quietEndMinutes);
+        }
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && docId == 'preferences'
+          && data().keys().hasOnly(['currencyCode', 'weekStart', 'formatLocale', 'reminders',
+                                    'budgetAlertThresholds', 'updatedAt'])
+          && isCurrency(data().currencyCode)
+          && data().weekStart is int && data().weekStart >= 1 && data().weekStart <= 7
+          && (data().formatLocale == null
+              || (data().formatLocale is string && data().formatLocale.size() <= 20))
+          && validReminders(data().reminders)
+          && data().budgetAlertThresholds is list && data().budgetAlertThresholds.size() <= 6
+          && data().updatedAt == request.time;
+        allow delete: if isOwner(uid);
+      }
+
+      // ---------------------------------------------------------------
+      // Written only by a trusted backend (e.g. a purchase-verification
+      // Cloud Function using the Admin SDK).
+      match /entitlements/{docId} {
+        allow read: if isOwner(uid);
+        allow delete: if isOwner(uid);
+        allow create, update: if false;
+      }
+    }
+  }
+}

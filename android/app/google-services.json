@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "667205827958",
+    "project_id": "daily-expense-buddy-e0980",
+    "storage_bucket": "daily-expense-buddy-e0980.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:667205827958:android:b92a07173f5005a72e0e57",
+        "android_client_info": {
+          "package_name": "com.dailyexpensebuddy.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAQYqMQFCe768Z16uSyW2OcnzFYHE3TvDc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
