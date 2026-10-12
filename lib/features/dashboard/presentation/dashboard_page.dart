@@ -343,8 +343,6 @@ class _DashboardContent extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: Space.lg),
-                const QuickActions(),
                 if (missed.isVisible) ...[gap, missed],
                 gap,
                 for (final e in extras) ...[e, gap],
