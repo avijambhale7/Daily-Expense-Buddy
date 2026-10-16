@@ -2,6 +2,7 @@ import 'package:daily/app/session/user_session.dart';
 import 'package:daily/core/theme/theme_cubit.dart';
 import 'package:daily/core/widgets/common.dart';
 import 'package:daily/features/dashboard/presentation/dashboard_page.dart';
+import 'package:daily/services/sound/sound_effects.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -137,6 +138,13 @@ void main() {
       expect(docs.docs.single.data()['amountMinor'], 12050);
       expect(docs.docs.single.data()['categoryId'], 'groceries');
       expect(docs.docs.single.data()['date'], '2025-10-14');
+      expect(h.sounds.played, [Sfx.expenseSaved]);
+
+      // Completing the day plays the celebration chime.
+      await tester.tap(find.text('Done').first);
+      await settle(tester);
+      expect(find.text('Day marked as complete'), findsOneWidget);
+      expect(h.sounds.played.last, Sfx.celebrate);
     });
 
     testWidgets('bottom navigation switches screens on phones', (tester) async {
@@ -209,6 +217,7 @@ void main() {
             categories: base.categories,
             budgets: base.budgets,
             dailyStatus: base.dailyStatus,
+            loans: base.loans,
             preferences: base.preferences,
             entitlements: base.entitlements,
             userData: base.userData,

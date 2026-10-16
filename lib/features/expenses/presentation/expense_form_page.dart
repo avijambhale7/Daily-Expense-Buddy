@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_ui/material_ui.dart';
@@ -15,6 +17,7 @@ import '../../../core/widgets/common.dart';
 import '../../../domain/models/expense.dart';
 import '../../../domain/models/expense_category.dart';
 import '../../../domain/repositories/repositories.dart';
+import '../../../services/sound/sound_effects.dart';
 import '../../../domain/services/expense_validator.dart';
 import '../cubit/expense_form_cubit.dart';
 
@@ -150,6 +153,13 @@ class _ExpenseFormBodyState extends State<_ExpenseFormBody> {
                   ? 'Saved on this device. It will sync when you are online.'
                   : (s.isEditing ? 'Expense updated' : 'Expense added'),
           };
+          if (s.status == ExpenseFormStatus.saved) {
+            unawaited(
+              context.read<AppDependencies>().soundEffects.play(
+                Sfx.expenseSaved,
+              ),
+            );
+          }
           _close();
           messenger
             ?..hideCurrentSnackBar()

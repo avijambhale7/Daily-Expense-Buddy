@@ -13,6 +13,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// users/{uid}/budgets/{budgetId}
 /// users/{uid}/budget_alerts/{yyyy-MM}_{budgetId}
 /// users/{uid}/daily_status/{yyyy-MM-dd}
+/// users/{uid}/loans/{loanId}
 /// users/{uid}/settings/preferences
 /// users/{uid}/entitlements/premium      (server-written only)
 /// ```
@@ -28,6 +29,7 @@ class FirestoreUserStore {
     'budgets',
     'budget_alerts',
     'daily_status',
+    'loans',
     'settings',
     'entitlements',
   ];
@@ -45,6 +47,8 @@ class FirestoreUserStore {
       userDoc.collection('budget_alerts');
   CollectionReference<Map<String, dynamic>> get dailyStatus =>
       userDoc.collection('daily_status');
+  CollectionReference<Map<String, dynamic>> get loans =>
+      userDoc.collection('loans');
   DocumentReference<Map<String, dynamic>> get preferences =>
       userDoc.collection('settings').doc('preferences');
   DocumentReference<Map<String, dynamic>> get premium =>

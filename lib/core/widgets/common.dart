@@ -319,6 +319,32 @@ class TrackingStatusChip extends StatelessWidget {
   }
 }
 
+/// Fades and slides a list item in, staggered by [index].
+class AppearIn extends StatelessWidget {
+  const AppearIn({super.key, required this.index, required this.child});
+
+  final int index;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.disableAnimationsOf(context)) return child;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: Duration(milliseconds: 300 + 60 * index.clamp(0, 6)),
+      curve: Curves.easeOutCubic,
+      builder: (context, v, child) => Opacity(
+        opacity: v,
+        child: Transform.translate(
+          offset: Offset(0, 16 * (1 - v)),
+          child: child,
+        ),
+      ),
+      child: child,
+    );
+  }
+}
+
 /// Icon in a soft tinted circle, used to give cards a friendly accent.
 class IconBadge extends StatelessWidget {
   const IconBadge({super.key, required this.icon, this.size = 32, this.color});
@@ -355,6 +381,7 @@ class StatTile extends StatelessWidget {
     this.caption,
     this.icon,
     this.emphasize = false,
+    this.action,
   });
 
   final String label;
@@ -362,6 +389,9 @@ class StatTile extends StatelessWidget {
   final String? caption;
   final IconData? icon;
   final bool emphasize;
+
+  /// Optional control at the end of the header row (e.g. a period picker).
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -389,6 +419,7 @@ class StatTile extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  ?action,
                 ],
               ),
               const SizedBox(height: Space.sm),
@@ -450,7 +481,11 @@ EdgeInsets pagePadding(BuildContext context) {
   final h = w >= Breakpoints.expanded
       ? Space.xxxl
       : (w >= Breakpoints.medium ? Space.xxl : Space.lg);
-  return EdgeInsets.fromLTRB(h, Space.sm, h, Space.xxxl + 56);
+  // The phone navigation bar is translucent and drawn over the content, so
+  // its height (reported as bottom padding) is added to keep the last item
+  // reachable.
+  final bottom = MediaQuery.paddingOf(context).bottom;
+  return EdgeInsets.fromLTRB(h, Space.sm, h, Space.xxxl + 56 + bottom);
 }
 
 Future<bool> showConfirmDialog(

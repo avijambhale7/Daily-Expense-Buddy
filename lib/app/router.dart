@@ -7,6 +7,7 @@ import '../core/dates/local_date.dart';
 import '../core/widgets/common.dart';
 import '../features/auth/cubit/auth_cubit.dart';
 import '../features/auth/presentation/auth_pages.dart';
+import '../features/auth/presentation/onboarding_page.dart';
 import '../features/auth/presentation/setup_pages.dart';
 import '../features/budgets/presentation/budgets_page.dart';
 import '../features/calendar/presentation/calendar_page.dart';
@@ -15,6 +16,7 @@ import '../features/categories/presentation/categories_page.dart';
 import '../features/dashboard/presentation/dashboard_page.dart';
 import '../features/expenses/presentation/expense_form_page.dart';
 import '../features/history/presentation/history_page.dart';
+import '../features/loans/presentation/loans_page.dart';
 import '../features/premium/presentation/premium_page.dart';
 import '../features/reports/presentation/reports_page.dart';
 import '../features/settings/presentation/account_page.dart';
@@ -22,6 +24,7 @@ import '../features/settings/presentation/privacy_page.dart';
 import '../features/settings/presentation/reminder_settings_page.dart';
 import '../features/settings/presentation/settings_page.dart';
 import '../features/shell/app_shell.dart';
+import 'app_gate.dart';
 import 'routes.dart';
 import 'session/user_scope.dart';
 
@@ -47,12 +50,17 @@ String? resolveRedirect({
   required bool firebaseReady,
   required Uri uri,
   required String matchedLocation,
+  bool splashDone = true,
+  bool onboardingSeen = true,
 }) {
   final loc = matchedLocation;
   if (!firebaseReady) return loc == Routes.setup ? null : Routes.setup;
 
   final isPublic = Routes.publicRoutes.contains(loc);
-  switch (auth.status) {
+  // The animated splash stays up for a moment at launch, whatever the
+  // auth state; the original destination is kept in `from`.
+  final status = splashDone ? auth.status : AuthStatus.unknown;
+  switch (status) {
     case AuthStatus.unknown:
       if (loc == Routes.splash) return null;
       final from = Routes.safeReturnPath(uri.toString());
@@ -60,6 +68,11 @@ String? resolveRedirect({
           ? Routes.splash
           : '${Routes.splash}?from=${Uri.encodeComponent(from)}';
     case AuthStatus.unauthenticated:
+      // First launch on this device: show the intro slides once.
+      if (!onboardingSeen) {
+        return loc == Routes.onboarding ? null : Routes.onboarding;
+      }
+      if (loc == Routes.onboarding) return Routes.welcome;
       if (isPublic) return null;
       final from = loc == Routes.splash
           ? Routes.safeReturnPath(uri.queryParameters['from'])
@@ -87,6 +100,7 @@ GoRouter buildRouter({
   required AuthCubit auth,
   required bool firebaseReady,
   required Listenable refresh,
+  AppGate? gate,
   String? initialLocation,
 }) {
   final rootKey = GlobalKey<NavigatorState>(debugLabel: 'root');
@@ -99,12 +113,18 @@ GoRouter buildRouter({
       firebaseReady: firebaseReady,
       uri: state.uri,
       matchedLocation: state.matchedLocation,
+      splashDone: gate?.splashDone ?? true,
+      onboardingSeen: gate?.onboardingSeen ?? true,
     ),
     errorBuilder: (context, state) => const NotFoundPage(),
     routes: [
       GoRoute(path: '/', redirect: (_, _) => Routes.dashboard),
       GoRoute(path: Routes.splash, builder: (_, _) => const SplashPage()),
       GoRoute(path: Routes.setup, builder: (_, _) => const FirebaseSetupPage()),
+      GoRoute(
+        path: Routes.onboarding,
+        builder: (_, _) => const OnboardingPage(),
+      ),
       GoRoute(path: Routes.welcome, builder: (_, _) => const WelcomePage()),
       GoRoute(path: Routes.login, builder: (_, _) => const LoginPage()),
       GoRoute(path: Routes.signUp, builder: (_, _) => const SignUpPage()),
@@ -212,6 +232,14 @@ GoRouter buildRouter({
                     builder: (_, _) => _protected(const PrivacyPage()),
                   ),
                 ],
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: Routes.loans,
+                builder: (_, _) => _protected(const LoansPage()),
               ),
             ],
           ),

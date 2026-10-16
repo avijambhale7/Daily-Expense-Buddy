@@ -4,6 +4,7 @@ import '../models/daily_status.dart';
 import '../models/expense.dart';
 import '../models/expense_category.dart';
 import '../models/expense_filter.dart';
+import '../models/loan.dart';
 import '../models/premium_entitlement.dart';
 import '../models/user_preferences.dart';
 import '../models/user_profile.dart';
@@ -96,6 +97,16 @@ abstract interface class BudgetRepository {
     required String budgetId,
     required int threshold,
   });
+}
+
+abstract interface class LoanRepository {
+  String newId();
+
+  /// All loans, newest first.
+  Stream<List<Loan>> watchAll();
+  Future<SaveOutcome> create(Loan loan);
+  Future<SaveOutcome> update(Loan loan);
+  Future<SaveOutcome> delete(String id);
 }
 
 abstract interface class DailyStatusRepository {

@@ -8,6 +8,7 @@ import '../core/theme/app_theme.dart';
 import '../core/theme/theme_cubit.dart';
 import '../features/auth/cubit/auth_cubit.dart';
 import 'app_dependencies.dart';
+import 'app_gate.dart';
 import 'router.dart';
 import 'session/user_scope.dart';
 
@@ -24,6 +25,8 @@ class _DailyExpenseBuddyAppState extends State<DailyExpenseBuddyApp> {
   late final AuthCubit _auth;
   late final ThemeCubit _theme;
   late final StreamListenable _refresh;
+  late final AppGate _gate;
+  late final Listenable _routerRefresh;
   late final GoRouter _router;
   late final StreamSubscription<String> _tapSub;
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
@@ -36,10 +39,16 @@ class _DailyExpenseBuddyAppState extends State<DailyExpenseBuddyApp> {
     _auth = AuthCubit(_deps.authRepository);
     _theme = ThemeCubit(_deps.themeStorage);
     _refresh = StreamListenable(_auth.stream);
+    _gate = AppGate(
+      splash: _deps.splashDuration,
+      onboardingStore: _deps.onboarding,
+    );
+    _routerRefresh = Listenable.merge([_refresh, _gate]);
     _router = buildRouter(
       auth: _auth,
       firebaseReady: _deps.firebase.isReady,
-      refresh: _refresh,
+      refresh: _routerRefresh,
+      gate: _gate,
       initialLocation: _deps.notifications.takeLaunchRoute(),
     );
     // Notification taps navigate to the referenced screen; the router's
@@ -52,6 +61,7 @@ class _DailyExpenseBuddyAppState extends State<DailyExpenseBuddyApp> {
     unawaited(_tapSub.cancel());
     _router.dispose();
     _refresh.dispose();
+    _gate.dispose();
     unawaited(_auth.close());
     unawaited(_theme.close());
     super.dispose();
@@ -65,8 +75,11 @@ class _DailyExpenseBuddyAppState extends State<DailyExpenseBuddyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return RepositoryProvider.value(
-      value: _deps,
+    return MultiRepositoryProvider(
+      providers: [
+        RepositoryProvider.value(value: _deps),
+        RepositoryProvider(create: (_) => OnboardingActions(_gate)),
+      ],
       child: MultiBlocProvider(
         providers: [
           BlocProvider.value(value: _auth),

@@ -28,22 +28,31 @@ class LocalNotificationService implements NotificationService {
   bool _webInitialized = false;
   String? _launchRoute;
 
+  /// Custom chime in android/app/src/main/res/raw. Android fixes a channel's
+  /// sound when it is created, so the channel ids carry a version.
+  static const _chime = RawResourceAndroidNotificationSound('reminder_chime');
+  static const _oldChannelIds = ['daily_reminders', 'budget_alerts'];
+
   static const _remindersChannel = AndroidNotificationDetails(
-    'daily_reminders',
+    'daily_reminders_v2',
     'Daily reminders',
     channelDescription: 'Reminders to record your daily expenses',
     importance: Importance.high,
     priority: Priority.high,
     icon: 'ic_stat_wallet',
     category: AndroidNotificationCategory.reminder,
+    sound: _chime,
+    playSound: true,
   );
 
   static const _alertsChannel = AndroidNotificationDetails(
-    'budget_alerts',
+    'budget_alerts_v2',
     'Budget alerts',
     channelDescription: 'Alerts when spending reaches a budget threshold',
     importance: Importance.defaultImportance,
     icon: 'ic_stat_wallet',
+    sound: _chime,
+    playSound: true,
   );
 
   @override
@@ -109,6 +118,14 @@ class LocalNotificationService implements NotificationService {
         if (route != null && route.startsWith('/')) _launchRoute = route;
       }
       _initialized = true;
+      // Remove the pre-chime channels so they don't linger in system settings.
+      final android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      for (final id in _oldChannelIds) {
+        await android?.deleteNotificationChannel(channelId: id);
+      }
     } catch (e, st) {
       AppLogger.error('Notifications', 'Initialisation failed', e, st);
     }

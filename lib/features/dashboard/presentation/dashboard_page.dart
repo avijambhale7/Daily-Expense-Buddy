@@ -20,6 +20,7 @@ import '../../../shared/widgets/expense_tile.dart';
 import '../../auth/cubit/auth_cubit.dart';
 import '../../calendar/day_status_actions.dart';
 import '../../expenses/presentation/expense_editor.dart';
+import '../../loans/presentation/loans_page.dart';
 import '../cubit/dashboard_cubit.dart';
 import 'mobile_hero.dart';
 
@@ -179,9 +180,6 @@ class _DashboardContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final categories = context.watch<CategoriesCubit>().state;
-    final reminders = context.select(
-      (PreferencesCubit c) => c.state.preferences.reminders.enabled,
-    );
     final s = summary;
 
     final today = _TodayCard(summary: s, format: format);
@@ -225,37 +223,6 @@ class _DashboardContent extends StatelessWidget {
         ],
       ),
     );
-    final categoryCard = SectionCard(
-      title: 'Categories',
-      subtitle: format.monthYear(s.today),
-      child: s.monthCategories.isEmpty
-          ? const EmptyState(
-              compact: true,
-              icon: Icons.donut_large_rounded,
-              title: 'No spending this month yet',
-            )
-          : CategoryBreakdown(
-              totals: s.monthCategories,
-              resolve: categories.resolve,
-              format: format,
-              horizontal: size != WindowSize.compact,
-            ),
-    );
-    final trendCard = SectionCard(
-      title: 'Monthly trend',
-      subtitle: 'Last 6 months',
-      child: TrendLineChart(
-        format: format,
-        data: [
-          for (final m in s.trend)
-            ChartDatum(
-              label: format.monthShort(m.month),
-              valueMinor: m.totalMinor,
-              tooltipLabel: format.monthYear(m.firstDay),
-            ),
-        ],
-      ),
-    );
     final recentCard = SectionCard(
       title: 'Recent expenses',
       trailing: TextButton(
@@ -281,14 +248,18 @@ class _DashboardContent extends StatelessWidget {
             )
           : Column(
               children: [
-                for (final e in s.recent)
-                  ExpenseTile(
-                    expense: e,
-                    category: categories.resolve(e.categoryId),
-                    format: format,
-                    showDate: true,
-                    today: s.today,
-                    onTap: () => openExpenseEditor(context, expenseId: e.id),
+                for (final (i, e) in s.recent.indexed)
+                  AppearIn(
+                    key: ValueKey(e.id),
+                    index: i,
+                    child: ExpenseTile(
+                      expense: e,
+                      category: categories.resolve(e.categoryId),
+                      format: format,
+                      showDate: true,
+                      today: s.today,
+                      onTap: () => openExpenseEditor(context, expenseId: e.id),
+                    ),
                   ),
               ],
             ),
@@ -299,15 +270,6 @@ class _DashboardContent extends StatelessWidget {
           message:
               '${s.excludedOtherCurrencyCount} expense(s) this month are in '
               'another currency and are not included in these totals.',
-        ),
-      if (!reminders)
-        InfoBanner(
-          icon: Icons.notifications_none_rounded,
-          message: 'Get a gentle daily reminder to log your expenses.',
-          action: TextButton(
-            onPressed: () => context.go(Routes.reminders),
-            child: const Text('Set up'),
-          ),
         ),
     ];
 
@@ -346,13 +308,10 @@ class _DashboardContent extends StatelessWidget {
                 if (missed.isVisible) ...[gap, missed],
                 gap,
                 for (final e in extras) ...[e, gap],
+                LoansSummaryCard(onOpen: () => context.go(Routes.loans)),
                 weekChart,
                 gap,
                 recentCard,
-                gap,
-                categoryCard,
-                gap,
-                trendCard,
               ],
             ),
           ),
@@ -391,21 +350,14 @@ class _DashboardContent extends StatelessWidget {
             if (missed.isVisible) ...[gap, missed],
             for (final e in extras) ...[gap, e],
             gap,
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(flex: 3, child: weekChart),
-                gap,
-                Expanded(flex: 2, child: trendCard),
-              ],
-            ),
+            LoansSummaryCard(onOpen: () => context.go(Routes.loans)),
             gap,
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(flex: 3, child: recentCard),
+                Expanded(child: weekChart),
                 gap,
-                Expanded(flex: 2, child: categoryCard),
+                Expanded(child: recentCard),
               ],
             ),
           ],

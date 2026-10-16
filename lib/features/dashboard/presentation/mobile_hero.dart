@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
@@ -77,121 +79,220 @@ class MobileHero extends StatelessWidget {
             bottom: Radius.circular(Radii.xl + 8),
           ),
         ),
-        child: SafeArea(
-          bottom: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              Space.xl,
-              Space.md,
-              Space.xl,
-              Space.xxxl + Space.xl,
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          children: [
+            // Soft colourful glows behind the header content (iOS-style
+            // mesh gradient).
+            const Positioned(
+              top: -60,
+              right: -40,
+              child: _Glow(color: Color(0xFF22D3EE), size: 220),
             ),
-            child: Column(
-              children: [
-                Row(
+            const Positioned(
+              bottom: -70,
+              left: -50,
+              child: _Glow(color: Color(0xFFF472B6), size: 240),
+            ),
+            SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  Space.xl,
+                  Space.md,
+                  Space.xl,
+                  Space.xxxl + Space.xl,
+                ),
+                child: Column(
                   children: [
-                    Expanded(
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                greeting,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: context.text.titleLarge?.copyWith(
+                                  color: onHero,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              Text(
+                                dateLabel,
+                                style: context.text.bodySmall?.copyWith(
+                                  color: muted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Tooltip(
+                          message: 'Account',
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () => context.go(Routes.account),
+                            child: CircleAvatar(
+                              radius: 21,
+                              backgroundColor: onHero.withValues(alpha: 0.18),
+                              foregroundColor: onHero,
+                              child: Text(
+                                initials,
+                                style: context.text.labelLarge?.copyWith(
+                                  color: onHero,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: Space.xl),
+                    ProgressRing(
+                      size: 196,
+                      strokeWidth: 14,
+                      value: ringValue,
+                      color: onHero,
+                      overColor: const Color(0xFFFFB4A9),
+                      trackColor: onHero.withValues(alpha: 0.18),
+                      semanticLabel: ringSemantics,
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            greeting,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: context.text.titleLarge?.copyWith(
+                            'Spent today',
+                            style: context.text.labelLarge?.copyWith(
+                              color: muted,
+                            ),
+                          ),
+                          _CountUp(
+                            value: s.todayTotalMinor,
+                            format: format,
+                            style: context.text.headlineLarge!.tabular.copyWith(
                               color: onHero,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
+                          const SizedBox(height: 2),
                           Text(
-                            dateLabel,
-                            style: context.text.bodySmall?.copyWith(
+                            ringLabel,
+                            style: context.text.labelMedium?.copyWith(
                               color: muted,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    Tooltip(
-                      message: 'Account',
-                      child: InkWell(
-                        customBorder: const CircleBorder(),
-                        onTap: () => context.go(Routes.account),
-                        child: CircleAvatar(
-                          radius: 21,
-                          backgroundColor: onHero.withValues(alpha: 0.18),
-                          foregroundColor: onHero,
-                          child: Text(
-                            initials,
-                            style: context.text.labelLarge?.copyWith(
-                              color: onHero,
-                            ),
+                    const SizedBox(height: Space.md),
+                    _StatusPill(state: s.todayState, onHero: onHero),
+                    const SizedBox(height: Space.xl),
+                    _Glass(
+                      child: Row(
+                        children: [
+                          _HeroStat(
+                            label: 'This week',
+                            value: format.amount(s.weekTotalMinor),
+                            onHero: onHero,
                           ),
-                        ),
+                          _Divider(color: onHero),
+                          _HeroStat(
+                            label: format.monthYear(s.today),
+                            value: format.amount(s.monthTotalMinor),
+                            onHero: onHero,
+                          ),
+                          _Divider(color: onHero),
+                          _HeroStat(
+                            label: '${s.today.year} so far',
+                            value: format.amount(s.yearTotalMinor),
+                            onHero: onHero,
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: Space.xl),
-                ProgressRing(
-                  size: 196,
-                  strokeWidth: 14,
-                  value: ringValue,
-                  color: onHero,
-                  overColor: const Color(0xFFFFB4A9),
-                  trackColor: onHero.withValues(alpha: 0.18),
-                  semanticLabel: ringSemantics,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Spent today',
-                        style: context.text.labelLarge?.copyWith(color: muted),
-                      ),
-                      Text(
-                        format.amount(s.todayTotalMinor),
-                        style: context.text.headlineLarge!.tabular.copyWith(
-                          color: onHero,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        ringLabel,
-                        style: context.text.labelMedium?.copyWith(color: muted),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: Space.md),
-                _StatusPill(state: s.todayState, onHero: onHero),
-                const SizedBox(height: Space.xl),
-                Row(
-                  children: [
-                    _HeroStat(
-                      label: 'This week',
-                      value: format.amount(s.weekTotalMinor),
-                      onHero: onHero,
-                    ),
-                    _Divider(color: onHero),
-                    _HeroStat(
-                      label: format.monthYear(s.today),
-                      value: format.amount(s.monthTotalMinor),
-                      onHero: onHero,
-                    ),
-                    _Divider(color: onHero),
-                    _HeroStat(
-                      label: '${s.today.year} so far',
-                      value: format.amount(s.yearTotalMinor),
-                      onHero: onHero,
-                    ),
-                  ],
-                ),
-              ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
+    );
+  }
+}
+
+/// Blurred colour blob used for the header's glow.
+class _Glow extends StatelessWidget {
+  const _Glow({required this.color, required this.size});
+
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    child: ImageFiltered(
+      imageFilter: ImageFilter.blur(sigmaX: 50, sigmaY: 50),
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.45),
+          shape: BoxShape.circle,
+        ),
+      ),
+    ),
+  );
+}
+
+/// Frosted-glass panel on the coloured header.
+class _Glass extends StatelessWidget {
+  const _Glass({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(Radii.lg + 4);
+    return ClipRRect(
+      borderRadius: radius,
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: Space.md),
+          decoration: BoxDecoration(
+            borderRadius: radius,
+            color: Colors.white.withValues(alpha: 0.12),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+/// Amount that counts up to [value] when it first appears or changes.
+class _CountUp extends StatelessWidget {
+  const _CountUp({
+    required this.value,
+    required this.format,
+    required this.style,
+  });
+
+  final int value;
+  final AppFormat format;
+  final TextStyle style;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Text(format.amount(value), style: style);
+    if (MediaQuery.disableAnimationsOf(context)) return text;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: value.toDouble()),
+      duration: const Duration(milliseconds: 900),
+      curve: Curves.easeOutCubic,
+      builder: (context, v, _) => Text(format.amount(v.round()), style: style),
     );
   }
 }

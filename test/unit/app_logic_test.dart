@@ -140,6 +140,47 @@ void main() {
       },
     );
 
+    test('animated splash stays up at launch, then the intro shows once', () {
+      String? at(
+        AuthState auth,
+        String location, {
+        bool splashDone = true,
+        bool seen = true,
+      }) {
+        final uri = Uri.parse(location);
+        return resolveRedirect(
+          auth: auth,
+          firebaseReady: true,
+          uri: uri,
+          matchedLocation: uri.path,
+          splashDone: splashDone,
+          onboardingSeen: seen,
+        );
+      }
+
+      final signedIn = AuthState.fromUser(verified);
+      const signedOut = AuthState.unauthenticated();
+      // While the splash plays, everyone waits on it (keeping the target).
+      expect(
+        at(signedIn, '/dashboard', splashDone: false),
+        '/splash?from=${Uri.encodeComponent('/dashboard')}',
+      );
+      expect(at(signedIn, '/splash', splashDone: false), isNull);
+      // Then signed-in users go straight in – never to the intro.
+      expect(
+        at(signedIn, '/splash?from=%2Fdashboard', seen: false),
+        '/dashboard',
+      );
+      expect(at(signedIn, '/intro'), Routes.dashboard);
+      // Signed-out users who have not seen the intro get it first.
+      expect(at(signedOut, '/splash', seen: false), Routes.onboarding);
+      expect(at(signedOut, '/login', seen: false), Routes.onboarding);
+      expect(at(signedOut, '/intro', seen: false), isNull);
+      // Once seen, the intro is skipped.
+      expect(at(signedOut, '/intro'), Routes.welcome);
+      expect(at(signedOut, '/login'), isNull);
+    });
+
     test('open redirects are rejected', () {
       expect(Routes.safeReturnPath('https://evil.example'), isNull);
       expect(Routes.safeReturnPath('//evil.example'), isNull);

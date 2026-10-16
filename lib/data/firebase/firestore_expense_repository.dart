@@ -37,13 +37,23 @@ class FirestoreExpenseRepository implements ExpenseRepository {
         throw FirebaseErrorMapper.firestore(e);
       });
 
+  /// Category and payment filters are equality-only queries, which Firestore
+  /// serves from its automatic single-field indexes. Date range, ordering and
+  /// the page limit are then applied on the device, so no composite index
+  /// has to be deployed for any filter combination.
+  bool _needsClientSide(ExpenseFilter f) =>
+      f.categoryId != null || f.paymentMethod != null;
+
   Query<Map<String, dynamic>> _query(ExpenseFilter filter) {
     Query<Map<String, dynamic>> q = _col;
-    if (filter.categoryId != null) {
-      q = q.where('categoryId', isEqualTo: filter.categoryId);
-    }
-    if (filter.paymentMethod != null) {
-      q = q.where('paymentMethod', isEqualTo: filter.paymentMethod!.key);
+    if (_needsClientSide(filter)) {
+      if (filter.categoryId != null) {
+        q = q.where('categoryId', isEqualTo: filter.categoryId);
+      }
+      if (filter.paymentMethod != null) {
+        q = q.where('paymentMethod', isEqualTo: filter.paymentMethod!.key);
+      }
+      return q;
     }
     final range = filter.range;
     if (range != null) {
@@ -52,6 +62,19 @@ class FirestoreExpenseRepository implements ExpenseRepository {
           .where('date', isLessThanOrEqualTo: range.end.toIso());
     }
     return q.orderBy('date', descending: filter.newestFirst);
+  }
+
+  /// Applies the date range and sort order on the device.
+  List<Expense> _refine(List<Expense> items, ExpenseFilter filter) {
+    final range = filter.range;
+    final list = range == null
+        ? items
+        : items.where((e) => range.contains(e.date)).toList();
+    return list..sort(
+      filter.newestFirst
+          ? Expense.newestFirst
+          : (a, b) => Expense.newestFirst(b, a),
+    );
   }
 
   @override
@@ -67,21 +90,14 @@ class FirestoreExpenseRepository implements ExpenseRepository {
 
   @override
   Stream<ExpensePage> watchHistory(ExpenseFilter filter, {required int limit}) {
+    final clientSide = _needsClientSide(filter);
+    final query = clientSide ? _query(filter) : _query(filter).limit(limit + 1);
     return _mapErrors(
-      _query(filter)
-          .limit(limit + 1)
-          .snapshots(includeMetadataChanges: true)
-          .map((snap) {
-            final items = _parse(snap);
-            final hasMore = items.length > limit;
-            final page = items.take(limit).toList()
-              ..sort(
-                filter.newestFirst
-                    ? Expense.newestFirst
-                    : (a, b) => Expense.newestFirst(b, a),
-              );
-            return ExpensePage(page, hasMore: hasMore);
-          }),
+      query.snapshots(includeMetadataChanges: true).map((snap) {
+        final items = _refine(_parse(snap), filter);
+        final hasMore = items.length > limit;
+        return ExpensePage(items.take(limit).toList(), hasMore: hasMore);
+      }),
     );
   }
 
@@ -97,7 +113,7 @@ class FirestoreExpenseRepository implements ExpenseRepository {
   Future<List<Expense>> fetch(ExpenseFilter filter) async {
     try {
       final snap = await _query(filter).get();
-      return _parse(snap);
+      return _refine(_parse(snap), filter);
     } catch (e, st) {
       AppLogger.error('Expenses', 'Fetch failed', e, st);
       throw FirebaseErrorMapper.firestore(e);

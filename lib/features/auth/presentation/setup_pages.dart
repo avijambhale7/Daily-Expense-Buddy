@@ -1,31 +1,197 @@
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/design_tokens.dart';
 import '../../../core/widgets/app_logo.dart';
 
-class SplashPage extends StatelessWidget {
+/// Brand blue of the launch screen; matches the native Android splash so the
+/// hand-over from the system splash is seamless.
+const _splashTop = Color(0xFF1E63E9);
+const _splashBottom = Color(0xFF0B2C8A);
+
+/// Animated launch screen: the logo pops in with soft pulsing rings, then
+/// the name and tagline slide up. Shown for a moment at every launch.
+class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
 
   @override
+  State<SplashPage> createState() => _SplashPageState();
+}
+
+class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
+  late final AnimationController _intro = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1300),
+  );
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1600),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _intro.value = 1;
+    } else if (!_intro.isAnimating && _intro.value == 0) {
+      _intro.forward();
+      _pulse.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _intro.dispose();
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  Animation<double> _interval(double begin, double end, Curve curve) =>
+      CurvedAnimation(
+        parent: _intro,
+        curve: Interval(begin, end, curve: curve),
+      );
+
+  @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AppLogo(size: 96),
-            SizedBox(height: Space.xxl),
-            SizedBox(
-              width: 28,
-              height: 28,
-              child: CircularProgressIndicator(strokeWidth: 3),
+    final logoScale = _interval(0, 0.55, Curves.elasticOut);
+    final logoFade = _interval(0, 0.25, Curves.easeOut);
+    final textIn = _interval(0.4, 0.8, Curves.easeOutCubic);
+    final taglineIn = _interval(0.6, 1, Curves.easeOutCubic);
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        backgroundColor: _splashTop,
+        body: DecoratedBox(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [_splashTop, _splashBottom],
             ),
-          ],
+          ),
+          child: Center(
+            child: Semantics(
+              label: 'Daily Expense Buddy is loading',
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox.square(
+                    dimension: 220,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        // Expanding rings behind the logo.
+                        for (final offset in const [0.0, 0.5])
+                          AnimatedBuilder(
+                            animation: _pulse,
+                            builder: (context, _) {
+                              final t = (_pulse.value + offset) % 1;
+                              return Opacity(
+                                opacity: (1 - t) * 0.35 * logoFade.value,
+                                child: Container(
+                                  width: 120 + 100 * t,
+                                  height: 120 + 100 * t,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.white,
+                                      width: 2,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        FadeTransition(
+                          opacity: logoFade,
+                          child: ScaleTransition(
+                            scale: Tween(
+                              begin: 0.4,
+                              end: 1.0,
+                            ).animate(logoScale),
+                            child: Container(
+                              width: 132,
+                              height: 132,
+                              padding: const EdgeInsets.all(18),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.16),
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.25),
+                                    blurRadius: 30,
+                                    offset: const Offset(0, 12),
+                                  ),
+                                ],
+                              ),
+                              child: const AppLogo(size: 96),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: Space.lg),
+                  _SlideFade(
+                    animation: textIn,
+                    child: Text.rich(
+                      TextSpan(
+                        children: [
+                          const TextSpan(text: 'Daily Expense '),
+                          TextSpan(
+                            text: 'Buddy',
+                            style: TextStyle(
+                              color: Colors.greenAccent.shade200,
+                            ),
+                          ),
+                        ],
+                      ),
+                      style: context.text.headlineMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: Space.sm),
+                  _SlideFade(
+                    animation: taglineIn,
+                    child: Text(
+                      'Track Today. Spend Smarter.',
+                      style: context.text.titleMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.85),
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
+}
+
+class _SlideFade extends StatelessWidget {
+  const _SlideFade({required this.animation, required this.child});
+
+  final Animation<double> animation;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+    opacity: animation,
+    child: SlideTransition(
+      position: Tween(
+        begin: const Offset(0, 0.6),
+        end: Offset.zero,
+      ).animate(animation),
+      child: child,
+    ),
+  );
 }
 
 /// Shown when the build has no Firebase configuration. Explains the exact

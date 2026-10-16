@@ -177,6 +177,18 @@ class _HistoryViewState extends State<_HistoryView> {
                           ),
                           child: const Text('Load more'),
                         )
+                      : state.filter.hasFilters
+                      ? FilledButton.tonalIcon(
+                          onPressed: () => context.read<HistoryBloc>().add(
+                            HistoryFilterChanged(
+                              ExpenseFilter(
+                                newestFirst: state.filter.newestFirst,
+                              ),
+                            ),
+                          ),
+                          icon: const Icon(Icons.filter_alt_off_rounded),
+                          label: const Text('Clear filters'),
+                        )
                       : null)
                 : FilledButton.icon(
                     onPressed: () => openExpenseEditor(context),
@@ -259,8 +271,7 @@ class _HistoryViewState extends State<_HistoryView> {
             final total = items
                 .where((e) => e.currencyCode == fmt.currencyCode)
                 .fold<int>(0, (s, e) => s + e.amountMinor);
-            return Padding(
-              key: ValueKey(day),
+            final group = Padding(
               padding: const EdgeInsets.only(bottom: Space.md),
               child: PageBody(
                 child: Column(
@@ -310,6 +321,10 @@ class _HistoryViewState extends State<_HistoryView> {
                 ),
               ),
             );
+            // Animate only the first screenful so long scrolls stay snappy.
+            return i < 6
+                ? AppearIn(key: ValueKey(day), index: i, child: group)
+                : KeyedSubtree(key: ValueKey(day), child: group);
           },
         ),
       ),
@@ -342,6 +357,8 @@ class _Filters extends StatelessWidget {
     final f = state.filter;
     final today = LocalDate.today(context.read<AppDependencies>().now);
 
+    void apply(ExpenseFilter next) => bloc.add(HistoryFilterChanged(next));
+
     Future<void> pickRange() async {
       final r = await showDateRangePicker(
         context: context,
@@ -355,19 +372,54 @@ class _Filters extends StatelessWidget {
               ),
       );
       if (r != null) {
-        bloc.add(
-          HistoryFilterChanged(
-            f.copyWith(
-              range: () => DateRange(
-                LocalDate.fromDateTime(r.start),
-                LocalDate.fromDateTime(r.end),
-              ),
+        apply(
+          f.copyWith(
+            range: () => DateRange(
+              LocalDate.fromDateTime(r.start),
+              LocalDate.fromDateTime(r.end),
             ),
           ),
         );
       }
     }
 
+    Future<void> pickCategory() async {
+      final picked = await _showPicker<String>(
+        context,
+        title: 'Filter by category',
+        allLabel: 'All categories',
+        selected: f.categoryId,
+        options: [
+          for (final c in categories.categories)
+            _PickerOption(
+              c.id,
+              c.name,
+              leading: CategoryAvatar(category: c, size: 36),
+            ),
+        ],
+      );
+      if (picked != null) apply(f.copyWith(categoryId: () => picked.value));
+    }
+
+    Future<void> pickPayment() async {
+      final picked = await _showPicker<PaymentMethod>(
+        context,
+        title: 'Filter by payment method',
+        allLabel: 'Any payment method',
+        selected: f.paymentMethod,
+        options: [
+          for (final m in PaymentMethod.values)
+            _PickerOption(
+              m,
+              m.label,
+              leading: const IconBadge(icon: Icons.payments_rounded, size: 36),
+            ),
+        ],
+      );
+      if (picked != null) apply(f.copyWith(paymentMethod: () => picked.value));
+    }
+
+    final hasFilters = f.hasFilters;
     return Padding(
       padding: const EdgeInsets.only(top: Space.sm, bottom: Space.sm),
       child: Column(
@@ -396,66 +448,54 @@ class _Filters extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                InputChip(
-                  avatar: const Icon(Icons.date_range_rounded, size: 18),
-                  label: Text(
-                    f.range == null ? 'Any date' : fmt.range(f.range!),
-                  ),
-                  selected: f.range != null,
-                  onPressed: pickRange,
-                  onDeleted: f.range == null
-                      ? null
-                      : () => bloc.add(
-                          HistoryFilterChanged(f.copyWith(range: () => null)),
-                        ),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 200),
+                  child: hasFilters
+                      ? Padding(
+                          padding: const EdgeInsets.only(right: Space.sm),
+                          child: ActionChip(
+                            avatar: Icon(
+                              Icons.filter_alt_off_rounded,
+                              size: 18,
+                              color: context.colors.onErrorContainer,
+                            ),
+                            label: const Text('Clear filters'),
+                            labelStyle: TextStyle(
+                              color: context.colors.onErrorContainer,
+                            ),
+                            backgroundColor: context.colors.errorContainer,
+                            side: BorderSide.none,
+                            onPressed: () => apply(
+                              ExpenseFilter(newestFirst: f.newestFirst),
+                            ),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+                _FilterChip(
+                  icon: Icons.date_range_rounded,
+                  label: f.range == null ? 'Any date' : fmt.range(f.range!),
+                  active: f.range != null,
+                  onTap: pickRange,
+                  onClear: () => apply(f.copyWith(range: () => null)),
                 ),
                 const SizedBox(width: Space.sm),
-                PopupMenuButton<String?>(
-                  tooltip: 'Filter by category',
-                  onSelected: (id) => bloc.add(
-                    HistoryFilterChanged(f.copyWith(categoryId: () => id)),
-                  ),
-                  itemBuilder: (_) => [
-                    const PopupMenuItem(
-                      value: null,
-                      child: Text('All categories'),
-                    ),
-                    for (final c in categories.categories)
-                      PopupMenuItem(value: c.id, child: Text(c.name)),
-                  ],
-                  child: Chip(
-                    avatar: const Icon(Icons.category_rounded, size: 18),
-                    label: Text(
-                      f.categoryId == null
-                          ? 'All categories'
-                          : categories.resolve(f.categoryId!).name,
-                    ),
-                    backgroundColor: f.categoryId == null
-                        ? null
-                        : context.colors.primaryContainer,
-                  ),
+                _FilterChip(
+                  icon: Icons.category_rounded,
+                  label: f.categoryId == null
+                      ? 'All categories'
+                      : categories.resolve(f.categoryId!).name,
+                  active: f.categoryId != null,
+                  onTap: pickCategory,
+                  onClear: () => apply(f.copyWith(categoryId: () => null)),
                 ),
                 const SizedBox(width: Space.sm),
-                PopupMenuButton<PaymentMethod?>(
-                  tooltip: 'Filter by payment method',
-                  onSelected: (m) => bloc.add(
-                    HistoryFilterChanged(f.copyWith(paymentMethod: () => m)),
-                  ),
-                  itemBuilder: (_) => [
-                    const PopupMenuItem(
-                      value: null,
-                      child: Text('Any payment method'),
-                    ),
-                    for (final m in PaymentMethod.values)
-                      PopupMenuItem(value: m, child: Text(m.label)),
-                  ],
-                  child: Chip(
-                    avatar: const Icon(Icons.payments_rounded, size: 18),
-                    label: Text(f.paymentMethod?.label ?? 'Any payment'),
-                    backgroundColor: f.paymentMethod == null
-                        ? null
-                        : context.colors.primaryContainer,
-                  ),
+                _FilterChip(
+                  icon: Icons.payments_rounded,
+                  label: f.paymentMethod?.label ?? 'Any payment',
+                  active: f.paymentMethod != null,
+                  onTap: pickPayment,
+                  onClear: () => apply(f.copyWith(paymentMethod: () => null)),
                 ),
                 const SizedBox(width: Space.sm),
                 ActionChip(
@@ -467,11 +507,8 @@ class _Filters extends StatelessWidget {
                   ),
                   label: Text(f.newestFirst ? 'Newest first' : 'Oldest first'),
                   tooltip: 'Change sort order',
-                  onPressed: () => bloc.add(
-                    HistoryFilterChanged(
-                      f.copyWith(newestFirst: !f.newestFirst),
-                    ),
-                  ),
+                  onPressed: () =>
+                      apply(f.copyWith(newestFirst: !f.newestFirst)),
                 ),
               ],
             ),
@@ -488,6 +525,108 @@ class _Filters extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Chip for one filter: tap to change it, ✕ to remove it when active.
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+    required this.onClear,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return InputChip(
+      avatar: Icon(icon, size: 18),
+      label: Text(label),
+      selected: active,
+      showCheckmark: false,
+      onPressed: onTap,
+      onDeleted: active ? onClear : null,
+      deleteButtonTooltipMessage: 'Remove filter',
+    );
+  }
+}
+
+class _PickerOption<T> {
+  const _PickerOption(this.value, this.label, {this.leading});
+  final T value;
+  final String label;
+  final Widget? leading;
+}
+
+/// Wraps the picked value so "All" (null) can be told apart from "dismissed".
+class _Picked<T> {
+  const _Picked(this.value);
+  final T? value;
+}
+
+Future<_Picked<T>?> _showPicker<T>(
+  BuildContext context, {
+  required String title,
+  required String allLabel,
+  required T? selected,
+  required List<_PickerOption<T>> options,
+}) {
+  return showModalBottomSheet<_Picked<T>>(
+    context: context,
+    // Above the navigation bar, which is drawn over tab content.
+    useRootNavigator: true,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (context) => SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.75,
+        ),
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Space.xl,
+                0,
+                Space.xl,
+                Space.sm,
+              ),
+              child: Text(title, style: context.text.titleMedium),
+            ),
+            ListTile(
+              leading: const IconBadge(
+                icon: Icons.select_all_rounded,
+                size: 36,
+              ),
+              title: Text(allLabel),
+              trailing: selected == null
+                  ? Icon(Icons.check_rounded, color: context.colors.primary)
+                  : null,
+              selected: selected == null,
+              onTap: () => Navigator.pop(context, _Picked<T>(null)),
+            ),
+            for (final o in options)
+              ListTile(
+                leading: o.leading,
+                title: Text(o.label),
+                trailing: o.value == selected
+                    ? Icon(Icons.check_rounded, color: context.colors.primary)
+                    : null,
+                selected: o.value == selected,
+                onTap: () => Navigator.pop(context, _Picked<T>(o.value)),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _TableHeader extends StatelessWidget {

@@ -15,6 +15,7 @@ import '../../../core/theme/theme_cubit.dart';
 import '../../../core/widgets/app_logo.dart';
 import '../../../core/widgets/common.dart';
 import '../../../domain/models/user_preferences.dart';
+import '../../../services/sound/sound_effects.dart';
 import '../../auth/cubit/auth_cubit.dart';
 import '../../export/export_dialog.dart';
 
@@ -66,6 +67,7 @@ class SettingsPage extends StatelessWidget {
     final theme = context.watch<ThemeCubit>().state;
     final premium = context.watch<EntitlementCubit>().state;
     final deps = context.read<AppDependencies>();
+    final sounds = deps.soundEffects;
     final fmt = AppFormat.of(context);
     final isPremium = premium.isPremium(deps.now());
     final currency = Currencies.byCode(prefs.currencyCode);
@@ -228,6 +230,32 @@ class SettingsPage extends StatelessWidget {
                     ),
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: () => context.go(Routes.reminders),
+                  ),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: sounds.enabled,
+                    builder: (context, on, _) => SwitchListTile(
+                      secondary: Icon(
+                        on
+                            ? Icons.volume_up_outlined
+                            : Icons.volume_off_outlined,
+                      ),
+                      title: const Text('Sound effects'),
+                      subtitle: const Text(
+                        'When you save an expense or complete a day',
+                      ),
+                      value: on,
+                      onChanged: (v) async {
+                        await sounds.setEnabled(v);
+                        if (v) await sounds.play(Sfx.celebrate);
+                      },
+                    ),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.handshake_outlined),
+                    title: const Text('Loans'),
+                    subtitle: const Text('Money you lent or borrowed'),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => context.go(Routes.loans),
                   ),
                   ListTile(
                     leading: const Icon(Icons.savings_outlined),

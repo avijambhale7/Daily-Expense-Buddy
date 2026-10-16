@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../core/errors/app_failure.dart';
 import '../../data/firebase/firestore_expense_repository.dart';
+import '../../data/firebase/firestore_loan_repository.dart';
 import '../../data/firebase/firestore_repositories.dart';
 import '../../data/firebase/firestore_user_store.dart';
 import '../../data/firebase/write_tracker.dart';
@@ -20,6 +21,7 @@ class UserSession {
     required this.categories,
     required this.budgets,
     required this.dailyStatus,
+    required this.loans,
     required this.preferences,
     required this.entitlements,
     required this.userData,
@@ -31,6 +33,7 @@ class UserSession {
   final CategoryRepository categories;
   final BudgetRepository budgets;
   final DailyStatusRepository dailyStatus;
+  final LoanRepository loans;
   final PreferencesRepository preferences;
   final EntitlementRepository entitlements;
   final UserDataRepository userData;
@@ -55,6 +58,7 @@ UserSessionFactory firestoreSessionFactory({
       categories: FirestoreCategoryRepository(store, tracker),
       budgets: FirestoreBudgetRepository(store, tracker),
       dailyStatus: FirestoreDailyStatusRepository(store, tracker),
+      loans: FirestoreLoanRepository(store, tracker),
       preferences: FirestorePreferencesRepository(store, tracker, locale),
       entitlements: FirestoreEntitlementRepository(store),
       userData: FirestoreUserDataRepository(store),

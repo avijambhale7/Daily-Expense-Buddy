@@ -286,6 +286,8 @@ class _BudgetsView extends StatelessWidget {
         .toList();
     final picked = await showModalBottomSheet<ExpenseCategory>(
       context: context,
+      // Above the navigation bar, which is drawn over tab content.
+      useRootNavigator: true,
       isScrollControlled: true,
       builder: (context) => SafeArea(
         child: ConstrainedBox(

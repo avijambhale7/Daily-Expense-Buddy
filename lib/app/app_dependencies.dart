@@ -1,6 +1,8 @@
 import '../core/theme/theme_cubit.dart';
 import '../domain/repositories/repositories.dart';
 import '../services/notifications/notification_service.dart';
+import '../services/sound/sound_effects.dart';
+import 'app_gate.dart';
 import 'firebase_initializer.dart';
 import 'session/user_session.dart';
 
@@ -17,6 +19,9 @@ class AppDependencies {
     this.clearLocalData,
     this.hasPendingWrites,
     this.now = DateTime.now,
+    this.onboarding,
+    this.splashDuration = Duration.zero,
+    this.sounds,
   });
 
   final FirebaseSetupResult firebase;
@@ -38,4 +43,15 @@ class AppDependencies {
   final Future<bool> Function()? hasPendingWrites;
 
   final DateTime Function() now;
+
+  /// Remembers whether the intro slides were shown; null skips them.
+  final OnboardingStore? onboarding;
+
+  /// Minimum time the animated splash stays on screen at launch.
+  final Duration splashDuration;
+
+  /// In-app sound effects; null plays nothing.
+  final SoundEffects? sounds;
+
+  SoundEffects get soundEffects => sounds ?? SoundEffects.silent;
 }

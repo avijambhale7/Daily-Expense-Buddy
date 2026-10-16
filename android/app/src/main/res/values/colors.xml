@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- Brand blue; matches the first frame of the animated Flutter splash. -->
+    <color name="splash_background">#1E63E9</color>
 </resources>

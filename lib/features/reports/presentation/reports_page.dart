@@ -16,6 +16,7 @@ import '../../../domain/models/expense.dart';
 import '../../../domain/models/report_summary.dart';
 import '../../../domain/services/expense_validator.dart';
 import '../../../domain/services/report_calculator.dart';
+import '../../../domain/services/spending_estimate.dart';
 import '../../../shared/charts/charts.dart';
 import '../../../shared/widgets/expense_tile.dart';
 import '../../expenses/presentation/expense_editor.dart';
@@ -197,6 +198,91 @@ class _ReportsView extends StatelessWidget {
   }
 }
 
+/// Projected spending for the current week or month (picked from a
+/// dropdown): average per day so far × days in that period. Independent of
+/// the period shown above.
+class _EstimateTile extends StatefulWidget {
+  const _EstimateTile();
+
+  @override
+  State<_EstimateTile> createState() => _EstimateTileState();
+}
+
+class _EstimateTileState extends State<_EstimateTile> {
+  bool _week = false;
+  Stream<List<Expense>>? _stream;
+  int? _weekStart;
+  late LocalDate _today;
+  late DateRange _month;
+  late DateRange _weekRange;
+
+  void _subscribe(int weekStart) {
+    _weekStart = weekStart;
+    _today = LocalDate.today(context.read<AppDependencies>().now);
+    _month = DateRange(_today.startOfMonth, _today.endOfMonth);
+    final ws = _today.startOfWeek(weekStart);
+    _weekRange = DateRange(ws, ws.addDays(6));
+    // One query covering both, since a week can cross a month boundary.
+    _stream = SessionScope.of(context).expenses.watchRange(
+      DateRange(
+        LocalDate.min(_month.start, _weekRange.start),
+        _month.end < _weekRange.end ? _weekRange.end : _month.end,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = context.watch<PreferencesCubit>().preferences;
+    if (_stream == null || _weekStart != prefs.weekStart) {
+      _subscribe(prefs.weekStart);
+    }
+    final fmt = AppFormat.of(context);
+    final picker = DropdownButtonHideUnderline(
+      child: DropdownButton<bool>(
+        value: _week,
+        isDense: true,
+        borderRadius: BorderRadius.circular(Radii.md),
+        style: context.text.labelLarge?.copyWith(color: context.colors.primary),
+        iconEnabledColor: context.colors.primary,
+        items: const [
+          DropdownMenuItem(value: false, child: Text('Month')),
+          DropdownMenuItem(value: true, child: Text('Week')),
+        ],
+        onChanged: (v) => setState(() => _week = v ?? false),
+      ),
+    );
+    return StreamBuilder<List<Expense>>(
+      stream: _stream,
+      builder: (context, snap) {
+        final list = snap.data;
+        if (list == null) {
+          return StatTile(
+            label: 'Estimate',
+            value: '—',
+            caption: snap.hasError ? 'Could not load' : 'Calculating…',
+            action: picker,
+          );
+        }
+        final e = SpendingEstimate.of(
+          range: _week ? _weekRange : _month,
+          today: _today,
+          expenses: list,
+          currencyCode: prefs.currencyCode,
+        );
+        return StatTile(
+          label: 'Estimate',
+          value: fmt.amount(e.estimatedMinor),
+          caption:
+              '${fmt.amount(e.avgPerDayMinor)}/day × ${e.totalDays} days '
+              'this ${_week ? 'week' : 'month'}',
+          action: picker,
+        );
+      },
+    );
+  }
+}
+
 class _ReportBody extends StatefulWidget {
   const _ReportBody({
     required this.summary,
@@ -243,15 +329,7 @@ class _ReportBodyState extends State<_ReportBody> {
             : 'Over ${s.elapsedDays} day${s.elapsedDays == 1 ? '' : 's'}',
         icon: Icons.calendar_view_day_rounded,
       ),
-      StatTile(
-        label: 'Avg per spending day',
-        value: s.avgPerSpendingDayMinor == null
-            ? '—'
-            : fmt.amount(s.avgPerSpendingDayMinor!),
-        caption:
-            '${s.spendingDays} day${s.spendingDays == 1 ? '' : 's'} with expenses',
-        icon: Icons.event_available_rounded,
-      ),
+      const _EstimateTile(),
       StatTile(
         label: 'Transactions',
         value: '${s.transactionCount}',
@@ -414,8 +492,10 @@ class _ReportBodyState extends State<_ReportBody> {
 
     final notes = Text(
       'Average per calendar day divides the total by every day of the period '
-      '(up to today for the current period). Lowest day only considers days '
-      'with spending. Comparisons use the equivalent previous period.',
+      '(up to today for the current period). Estimate projects this week or '
+      'month as average per day so far × days in it. Lowest day only '
+      'considers days with spending. Comparisons use the equivalent previous '
+      'period.',
       style: context.text.bodySmall,
     );
 

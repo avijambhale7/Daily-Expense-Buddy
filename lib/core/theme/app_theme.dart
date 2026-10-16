@@ -17,7 +17,8 @@ abstract final class AppTheme {
     var scheme = ColorScheme.fromSeed(
       seedColor: palette.seed,
       brightness: brightness,
-      dynamicSchemeVariant: DynamicSchemeVariant.tonalSpot,
+      // Vibrant: livelier, more saturated containers than the default.
+      dynamicSchemeVariant: DynamicSchemeVariant.vibrant,
     );
     // Keep the exact brand colour as primary in light mode when it has
     // enough contrast with white text (WCAG AA, 4.5:1); containers stay soft.
@@ -55,6 +56,11 @@ abstract final class AppTheme {
       scaffoldBackgroundColor: background,
       canvasColor: background,
       visualDensity: VisualDensity.standard,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+        },
+      ),
       materialTapTargetSize: MaterialTapTargetSize.padded,
       extensions: [appColors],
       appBarTheme: AppBarTheme(

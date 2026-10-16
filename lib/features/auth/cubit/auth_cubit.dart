@@ -19,7 +19,7 @@ enum AuthStatus {
 }
 
 class AuthState extends Equatable {
-  const AuthState._(this.status, this.user);
+  const AuthState._(this.status, this.user, {this.justVerified = false});
 
   const AuthState.unknown() : this._(AuthStatus.unknown, null);
   const AuthState.unauthenticated() : this._(AuthStatus.unauthenticated, null);
@@ -35,10 +35,17 @@ class AuthState extends Equatable {
   final AuthStatus status;
   final UserProfile? user;
 
+  /// True right after the email address was verified in this session, so the
+  /// app can celebrate it once.
+  final bool justVerified;
+
   bool get isAuthenticated => status == AuthStatus.authenticated;
 
+  AuthState withJustVerified(bool value) =>
+      AuthState._(status, user, justVerified: value);
+
   @override
-  List<Object?> get props => [status, user];
+  List<Object?> get props => [status, user, justVerified];
 }
 
 /// Application-wide authentication state, derived exclusively from Firebase
@@ -51,7 +58,7 @@ class AuthCubit extends Cubit<AuthState> {
       return;
     }
     _sub = repo.userChanges().listen(
-      (user) => emit(AuthState.fromUser(user)),
+      (user) => _emitUser(user),
       onError: (Object e) {
         AppLogger.warn('Auth', 'Auth state stream error', e);
         emit(const AuthState.unauthenticated());
@@ -76,7 +83,23 @@ class AuthCubit extends Cubit<AuthState> {
   /// Reloads the user (e.g. after clicking the verification link).
   Future<void> refreshUser() async {
     final user = await repository.reloadUser();
-    emit(AuthState.fromUser(user));
+    _emitUser(user);
+  }
+
+  void _emitUser(UserProfile? user) {
+    final next = AuthState.fromUser(user);
+    if (next.isAuthenticated && state.status == AuthStatus.unverified) {
+      emit(next.withJustVerified(true));
+    } else if (next.isAuthenticated && state.justVerified) {
+      emit(next.withJustVerified(true));
+    } else {
+      emit(next);
+    }
+  }
+
+  /// Called once the "email verified" celebration has been shown.
+  void acknowledgeVerified() {
+    if (state.justVerified) emit(state.withJustVerified(false));
   }
 
   Future<void> signOut() => repository.signOut();

@@ -1,4 +1,9 @@
+import 'dart:async';
+
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_ui/material_ui.dart';
+
+import '../../app/app_dependencies.dart';
 
 import '../../app/session/user_scope.dart';
 import '../../core/dates/local_date.dart';
@@ -6,6 +11,7 @@ import '../../core/errors/app_failure.dart';
 import '../../core/widgets/common.dart';
 import '../../domain/models/daily_status.dart';
 import '../../domain/services/tracking_status_service.dart';
+import '../../services/sound/sound_effects.dart';
 
 /// Shared actions for recording a day's tracking status. Used by the
 /// dashboard, calendar and day detail screens so they behave identically.
@@ -46,8 +52,10 @@ abstract final class DayStatusActions {
     String message,
   ) async {
     final repo = SessionScope.of(context).dailyStatus;
+    final sounds = context.read<AppDependencies>().soundEffects;
     try {
       await repo.setStatus(day, status);
+      unawaited(sounds.play(Sfx.celebrate));
       if (context.mounted) showMessage(context, message);
     } on AppFailure catch (f) {
       if (context.mounted) showMessage(context, f.message);

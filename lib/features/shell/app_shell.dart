@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+import 'dart:ui';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +10,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/design_tokens.dart';
 import '../../core/widgets/app_logo.dart';
 import '../auth/cubit/auth_cubit.dart';
+import '../auth/presentation/verified_celebration.dart';
 import '../expenses/presentation/expense_editor.dart';
 
 class _Destination {
@@ -37,6 +41,7 @@ const _destinations = [
   _Destination('Budgets', Icons.savings_outlined, Icons.savings_rounded),
   _Destination('Categories', Icons.category_outlined, Icons.category_rounded),
   _Destination('Settings', Icons.settings_outlined, Icons.settings_rounded),
+  _Destination('Loans', Icons.handshake_outlined, Icons.handshake_rounded),
 ];
 
 /// Responsive navigation chrome shared by all signed-in screens:
@@ -64,7 +69,10 @@ class AppShell extends StatelessWidget {
         const SingleActivator(LogicalKeyboardKey.keyN, alt: true): () =>
             openExpenseEditor(context),
       },
-      child: FocusScope(autofocus: true, child: content),
+      child: FocusScope(
+        autofocus: true,
+        child: VerifiedCelebrationGate(child: content),
+      ),
     );
   }
 }
@@ -83,11 +91,25 @@ class _CompactShell extends StatelessWidget {
     final current = shell.currentIndex;
     final selected = _bar.contains(current)
         ? _bar.indexOf(current)
-        : 4; // Budgets/Categories live under "More".
+        : 4; // Budgets, Categories and Loans live under "More".
     // Home has its own prominent Add button in the header card.
     final showFab = current == 1 || current == 3;
     return Scaffold(
-      body: shell,
+      // The glass bar overlaps the body; report its height as view padding
+      // too, so nested screens' floating buttons sit above it.
+      body: Builder(
+        builder: (context) {
+          final mq = MediaQuery.of(context);
+          return MediaQuery(
+            data: mq.copyWith(
+              viewPadding: mq.viewPadding.copyWith(
+                bottom: math.max(mq.viewPadding.bottom, mq.padding.bottom),
+              ),
+            ),
+            child: shell,
+          );
+        },
+      ),
       floatingActionButton: showFab
           ? FloatingActionButton.extended(
               heroTag: 'add-expense',
@@ -96,24 +118,85 @@ class _CompactShell extends StatelessWidget {
               label: const Text('Add expense'),
             )
           : null,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: selected,
-        onDestinationSelected: (i) => onSelect(_bar[i]),
-        destinations: [
-          for (final i in _bar)
-            NavigationDestination(
-              icon: Icon(i == 6 ? Icons.menu_rounded : _destinations[i].icon),
-              selectedIcon: Icon(
-                i == 6
-                    ? Icons.menu_open_rounded
-                    : _destinations[i].selectedIcon,
+      // iOS-style frosted glass: content scrolls underneath, blurred.
+      extendBody: true,
+      bottomNavigationBar: _GlassBar(
+        child: NavigationBar(
+          backgroundColor: Colors.transparent,
+          selectedIndex: selected,
+          onDestinationSelected: (i) {
+            HapticFeedback.selectionClick();
+            onSelect(_bar[i]);
+          },
+          destinations: [
+            for (final i in _bar)
+              NavigationDestination(
+                icon: Icon(i == 6 ? Icons.menu_rounded : _destinations[i].icon),
+                selectedIcon: _Bounce(
+                  child: Icon(
+                    i == 6
+                        ? Icons.menu_open_rounded
+                        : _destinations[i].selectedIcon,
+                  ),
+                ),
+                label: i == 0
+                    ? 'Home'
+                    : (i == 6 ? 'More' : _destinations[i].label),
               ),
-              label: i == 0
-                  ? 'Home'
-                  : (i == 6 ? 'More' : _destinations[i].label),
-            ),
-        ],
+          ],
+        ),
       ),
+    );
+  }
+}
+
+/// Translucent, blurred backdrop for the bottom navigation bar.
+class _GlassBar extends StatelessWidget {
+  const _GlassBar({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final dark = c.brightness == Brightness.dark;
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: (dark ? c.surfaceContainer : c.surfaceContainerLowest)
+                .withValues(alpha: 0.72),
+            border: Border(
+              top: BorderSide(
+                color: c.outlineVariant.withValues(alpha: 0.4),
+                width: 0.5,
+              ),
+            ),
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+/// Plays a small springy pop when it first appears (i.e. when a navigation
+/// item becomes selected).
+class _Bounce extends StatelessWidget {
+  const _Bounce({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.disableAnimationsOf(context)) return child;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.6, end: 1),
+      duration: const Duration(milliseconds: 550),
+      curve: Curves.elasticOut,
+      builder: (context, v, child) => Transform.scale(scale: v, child: child),
+      child: child,
     );
   }
 }

@@ -2,6 +2,7 @@ import '../core/dates/local_date.dart';
 
 abstract final class Routes {
   static const splash = '/splash';
+  static const onboarding = '/intro';
   static const setup = '/setup';
   static const welcome = '/welcome';
   static const login = '/login';
@@ -15,13 +16,20 @@ abstract final class Routes {
   static const calendar = '/calendar';
   static const budgets = '/budgets';
   static const categories = '/categories';
+  static const loans = '/loans';
   static const settings = '/settings';
   static const account = '/settings/account';
   static const reminders = '/settings/reminders';
   static const premium = '/settings/premium';
   static const privacy = '/settings/privacy';
 
-  static const publicRoutes = {welcome, login, signUp, forgotPassword};
+  static const publicRoutes = {
+    onboarding,
+    welcome,
+    login,
+    signUp,
+    forgotPassword,
+  };
 
   static String historyForCategory(String categoryId) =>
       '$history?category=${Uri.encodeComponent(categoryId)}';

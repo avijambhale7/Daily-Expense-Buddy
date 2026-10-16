@@ -529,13 +529,39 @@ class _VerifyViewState extends State<_VerifyView> {
   static const _cooldownSeconds = 60;
   int _cooldown = 0;
   Timer? _timer;
+  Timer? _poll;
+  late final AppLifecycleListener _lifecycle;
   bool _checking = false;
+  bool _silentCheck = false;
   String? _checkMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    // Notice the verification automatically: every few seconds while this
+    // screen is open, and as soon as the user returns from the browser.
+    _poll = Timer.periodic(const Duration(seconds: 4), (_) => _autoCheck());
+    _lifecycle = AppLifecycleListener(onResume: _autoCheck);
+  }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _poll?.cancel();
+    _lifecycle.dispose();
     super.dispose();
+  }
+
+  Future<void> _autoCheck() async {
+    if (!mounted || _checking || _silentCheck) return;
+    _silentCheck = true;
+    try {
+      await context.read<AuthCubit>().refreshUser();
+    } catch (_) {
+      // Silent background check: offline or rate limited; try again later.
+    } finally {
+      _silentCheck = false;
+    }
   }
 
   Future<void> _resend() async {
@@ -579,11 +605,25 @@ class _VerifyViewState extends State<_VerifyView> {
     return AuthLayout(
       title: 'Verify your email',
       subtitle:
-          'We sent a verification link to $email. Verifying keeps your '
-          'financial data protected.',
+          'We sent a link to $email. Tap it, then come back here – the app '
+          'notices automatically.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const Center(child: _MailAnimation()),
+          const SizedBox(height: Space.md),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const SizedBox.square(
+                dimension: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: Space.sm),
+              Text('Waiting for verification…', style: context.text.bodySmall),
+            ],
+          ),
+          const SizedBox(height: Space.xl),
           _FormMessage(state),
           if (_checkMessage != null) ...[
             InfoBanner(message: _checkMessage!, tone: BannerTone.warning),
@@ -615,6 +655,94 @@ class _VerifyViewState extends State<_VerifyView> {
             textAlign: TextAlign.center,
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Envelope gently bobbing with expanding rings, while waiting for the user
+/// to tap the link.
+class _MailAnimation extends StatefulWidget {
+  const _MailAnimation();
+
+  @override
+  State<_MailAnimation> createState() => _MailAnimationState();
+}
+
+class _MailAnimationState extends State<_MailAnimation>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2000),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _c.stop();
+    } else if (!_c.isAnimating) {
+      _c.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return ExcludeSemantics(
+      child: SizedBox.square(
+        dimension: 140,
+        child: AnimatedBuilder(
+          animation: _c,
+          builder: (context, _) {
+            final t = _c.value;
+            return Stack(
+              alignment: Alignment.center,
+              children: [
+                for (final o in const [0.0, 0.5])
+                  Opacity(
+                    opacity: (1 - (t + o) % 1) * 0.5,
+                    child: Container(
+                      width: 80 + 60 * ((t + o) % 1),
+                      height: 80 + 60 * ((t + o) % 1),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: c.primary, width: 2),
+                      ),
+                    ),
+                  ),
+                Transform.translate(
+                  offset: Offset(
+                    0,
+                    -6 *
+                        Curves.easeInOut.transform(
+                          t < 0.5 ? t * 2 : (1 - t) * 2,
+                        ),
+                  ),
+                  child: Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: c.primaryContainer,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.mark_email_unread_rounded,
+                      size: 40,
+                      color: c.primary,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }

@@ -1,5 +1,7 @@
 import 'package:daily/app/app.dart';
 import 'package:daily/app/app_dependencies.dart';
+import 'package:daily/app/app_gate.dart';
+import 'package:daily/services/sound/sound_effects.dart';
 import 'package:daily/app/firebase_initializer.dart';
 import 'package:daily/app/session/user_session.dart';
 import 'package:daily/core/dates/local_date.dart';
@@ -39,12 +41,16 @@ class TestHarness {
     required this.db,
     required this.dependencies,
     required this.prefs,
+    required this.sounds,
   });
 
   final MockFirebaseAuth auth;
   final FakeFirebaseFirestore db;
   final AppDependencies dependencies;
   final SharedPreferences prefs;
+
+  /// Records the sound effects the app played.
+  final SilentSoundEffects sounds;
 }
 
 /// Builds app dependencies using the real Firebase repositories over
@@ -55,6 +61,7 @@ Future<TestHarness> createHarness({
   bool firebaseReady = true,
   Map<String, Object> initialPrefs = const {},
   UserSession Function(UserSession base)? overrideSession,
+  bool withOnboarding = false,
 }) async {
   await initializeDateFormatting('en_US');
   SharedPreferences.setMockInitialValues(initialPrefs);
@@ -65,7 +72,9 @@ Future<TestHarness> createHarness({
   );
   final db = FakeFirebaseFirestore();
   final baseFactory = firestoreSessionFactory(db: db, locale: 'en_US');
+  final sounds = SilentSoundEffects();
   final deps = AppDependencies(
+    sounds: sounds,
     firebase: FirebaseSetupResult(
       firebaseReady
           ? FirebaseSetupStatus.ready
@@ -85,8 +94,15 @@ Future<TestHarness> createHarness({
     clearLocalData: () async {},
     hasPendingWrites: () async => false,
     now: testNow,
+    onboarding: withOnboarding ? SharedPreferencesOnboardingStore(prefs) : null,
   );
-  return TestHarness(auth: auth, db: db, dependencies: deps, prefs: prefs);
+  return TestHarness(
+    auth: auth,
+    db: db,
+    dependencies: deps,
+    prefs: prefs,
+    sounds: sounds,
+  );
 }
 
 Future<void> pumpApp(

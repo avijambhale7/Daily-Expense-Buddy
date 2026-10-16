@@ -147,6 +147,36 @@ service cloud.firestore {
       }
 
       // ---------------------------------------------------------------
+      // Money lent to / borrowed from other people (just records; no money
+      // moves). repaidMinor can never exceed the amount.
+      match /loans/{loanId} {
+        function validLoan(d) {
+          return d.keys().hasOnly(['direction', 'personName', 'amountMinor', 'repaidMinor',
+                                   'currency', 'date', 'dueDate', 'note', 'settled',
+                                   'createdAt', 'updatedAt'])
+            && d.direction in ['lent', 'borrowed']
+            && d.personName is string && d.personName.size() > 0 && d.personName.size() <= 60
+            && isAmount(d.amountMinor)
+            && d.repaidMinor is int && d.repaidMinor >= 0 && d.repaidMinor <= d.amountMinor
+            && isCurrency(d.currency)
+            && isDate(d.date)
+            && (!('dueDate' in d) || d.dueDate == null || isDate(d.dueDate))
+            && optString(d, 'note', 200)
+            && d.settled is bool
+            && d.updatedAt == request.time;
+        }
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && loanId.size() <= 64
+          && validLoan(data())
+          && data().createdAt == request.time;
+        allow update: if isOwner(uid)
+          && validLoan(data())
+          && data().createdAt == resource.data.createdAt;
+        allow delete: if isOwner(uid);
+      }
+
+      // ---------------------------------------------------------------
       match /daily_status/{day} {
         allow read: if isOwner(uid);
         allow create, update: if isOwner(uid)

@@ -181,6 +181,36 @@ describe('other collections', () => {
     await assertFails(setDoc(doc(alice(), 'users/alice/budget_alerts/2025-10_other'), a));
   });
 
+  test('loans are private and validated', async () => {
+    const loan = {
+      direction: 'lent',
+      personName: 'Rahul',
+      amountMinor: 500000,
+      repaidMinor: 0,
+      currency: 'INR',
+      date: '2025-10-14',
+      dueDate: null,
+      note: null,
+      settled: false,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    const ref = doc(alice(), 'users/alice/loans/l1');
+    await assertSucceeds(setDoc(ref, loan));
+    await assertSucceeds(getDoc(ref));
+    await assertSucceeds(updateDoc(ref, { repaidMinor: 200000, updatedAt: serverTimestamp() }));
+    // Cannot repay more than the amount, or use an unknown direction.
+    await assertFails(updateDoc(ref, { repaidMinor: 600000, updatedAt: serverTimestamp() }));
+    await assertFails(setDoc(doc(alice(), 'users/alice/loans/l2'), { ...loan, direction: 'gift' }));
+    await assertFails(setDoc(doc(alice(), 'users/alice/loans/l3'), { ...loan, personName: '' }));
+    await assertFails(setDoc(doc(alice(), 'users/alice/loans/l4'), { ...loan, extra: 1 }));
+    // Other users and unverified accounts cannot touch it.
+    await assertFails(getDoc(doc(bob(), 'users/alice/loans/l1')));
+    await assertFails(setDoc(doc(bob(), 'users/alice/loans/l5'), loan));
+    await assertFails(setDoc(doc(unverified(), 'users/alice/loans/l6'), loan));
+    await assertSucceeds(deleteDoc(ref));
+  });
+
   test('preferences are validated', async () => {
     const p = {
       currencyCode: 'INR',
