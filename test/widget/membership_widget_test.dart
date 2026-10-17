@@ -1,4 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:daily/app/session/user_session.dart';
+import 'package:daily/domain/models/membership.dart';
+import 'package:daily/domain/repositories/repositories.dart';
 import 'package:daily/features/admin/presentation/admin_console.dart';
 import 'package:daily/features/membership/presentation/suspended_page.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -33,7 +36,66 @@ Future<void> _tapCentred(WidgetTester tester, Finder finder) async {
   await tester.tap(finder);
 }
 
+/// Answers the admin check after a delay, like a real network round trip.
+class _SlowAdmin implements MembershipRepository {
+  _SlowAdmin(this.inner);
+  final MembershipRepository inner;
+
+  @override
+  Future<bool> isAdmin() async {
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    return true;
+  }
+
+  @override
+  Stream<BanInfo?> watchBan() => inner.watchBan();
+  @override
+  Stream<PremiumConfig> watchConfig() => inner.watchConfig();
+  @override
+  Stream<List<PremiumRequest>> watchMyRequests() => inner.watchMyRequests();
+  @override
+  Future<void> requestTrial({String? message}) =>
+      inner.requestTrial(message: message);
+  @override
+  Future<void> requestActivation({
+    required String upiRef,
+    required int amountPaise,
+    String? message,
+  }) => inner.requestActivation(
+    upiRef: upiRef,
+    amountPaise: amountPaise,
+    message: message,
+  );
+}
+
 void main() {
+  testWidgets('a slow admin check still ends on the admin console', (
+    tester,
+  ) async {
+    final h = await createHarness(
+      overrideSession: (base) => UserSession(
+        user: base.user,
+        expenses: base.expenses,
+        categories: base.categories,
+        budgets: base.budgets,
+        dailyStatus: base.dailyStatus,
+        loans: base.loans,
+        preferences: base.preferences,
+        entitlements: base.entitlements,
+        userData: base.userData,
+        syncIssues: base.syncIssues,
+        membership: _SlowAdmin(base.membership),
+        admin: base.admin,
+        recurring: base.recurring,
+        goals: base.goals,
+      ),
+    );
+    await pumpApp(tester, h);
+    await settle(tester, frames: 20);
+    expect(find.byType(AdminConsole), findsOneWidget);
+    expect(find.text('Admin console'), findsOneWidget);
+  });
+
   testWidgets('admins get the admin console instead of the app', (
     tester,
   ) async {

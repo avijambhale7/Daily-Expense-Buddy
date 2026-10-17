@@ -64,8 +64,12 @@ class RequireSession extends StatelessWidget {
 
 /// Hosts a screen shown instead of the router (admin console, suspension
 /// notice): it needs its own navigator for dialogs and sheets.
+///
+/// Each use needs its own [key]: a Navigator builds its first page only
+/// once, so without a new key switching from the loading page to the admin
+/// console would keep showing the loading page.
 class _OwnNavigator extends StatelessWidget {
-  const _OwnNavigator(this.home);
+  const _OwnNavigator(this.home, {required super.key});
 
   final Widget home;
 
@@ -275,12 +279,23 @@ class _UserScopeState extends State<UserScope> {
                     // Banned accounts see only the suspension notice, admins
                     // their own console; everyone else the normal app.
                     if (m.ban != null) {
-                      return const _OwnNavigator(SuspendedPage());
+                      return const _OwnNavigator(
+                        SuspendedPage(),
+                        key: ValueKey('suspended'),
+                      );
                     }
                     if (!m.adminChecked) {
-                      return const _OwnNavigator(Scaffold(body: LoadingView()));
+                      return const _OwnNavigator(
+                        Scaffold(body: LoadingView()),
+                        key: ValueKey('checking-admin'),
+                      );
                     }
-                    if (m.isAdmin) return const _OwnNavigator(AdminConsole());
+                    if (m.isAdmin) {
+                      return const _OwnNavigator(
+                        AdminConsole(),
+                        key: ValueKey('admin'),
+                      );
+                    }
                     final lock = active.lock;
                     return lock == null
                         ? widget.child
