@@ -10,6 +10,11 @@ abstract final class Routes {
   static const forgotPassword = '/forgot-password';
   static const verifyEmail = '/verify-email';
 
+  /// Target of links in Firebase emails (verify email, reset password).
+  /// Reachable in every auth state; the code in the link is validated by
+  /// Firebase, never trusted on its own.
+  static const emailAction = '/auth/action';
+
   static const dashboard = '/dashboard';
   static const history = '/history';
   static const reports = '/reports';
@@ -52,6 +57,7 @@ abstract final class Routes {
         publicRoutes.contains(path) ||
         path == splash ||
         path == verifyEmail ||
+        path == emailAction ||
         path == setup) {
       return null;
     }

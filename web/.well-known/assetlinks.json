@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.dailyexpensebuddy.app",
+      "sha256_cert_fingerprints": [
+        "B8:33:C1:49:EC:D7:A9:01:90:EB:C9:87:A3:D3:5D:1C:0C:B6:47:F9:ED:72:31:74:29:B0:32:A9:01:E4:95:42"
+      ]
+    }
+  }
+]

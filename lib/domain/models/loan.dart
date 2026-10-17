@@ -21,6 +21,42 @@ enum LoanDirection {
   }
 }
 
+/// Where a loan stands. Derived from the stored amounts and flags, so it can
+/// never disagree with them.
+enum LoanStatus {
+  outstanding('Outstanding'),
+  partiallyRepaid('Partially repaid'),
+  fullyRepaid('Fully repaid'),
+  cancelled('Cancelled');
+
+  const LoanStatus(this.label);
+  final String label;
+}
+
+/// One payment towards a loan. Stored under the loan
+/// (`users/{uid}/loans/{loanId}/repayments/{id}`) and never edited, so the
+/// history is a reliable record of what was paid and when.
+class LoanRepayment extends Equatable {
+  const LoanRepayment({
+    required this.id,
+    required this.amountMinor,
+    required this.date,
+    this.note,
+    this.createdAt,
+  });
+
+  final String id;
+  final int amountMinor;
+  final LocalDate date;
+  final String? note;
+
+  /// Server time the repayment was recorded (null until synced).
+  final DateTime? createdAt;
+
+  @override
+  List<Object?> get props => [id, amountMinor, date, note, createdAt];
+}
+
 /// Money lent to or borrowed from a person. Amounts are in minor units of
 /// [currencyCode]; [repaidMinor] is how much of it has been returned so far.
 class Loan extends Equatable {
@@ -35,6 +71,7 @@ class Loan extends Equatable {
     this.dueDate,
     this.note,
     this.settled = false,
+    this.cancelled = false,
     this.hasPendingWrites = false,
   });
 
@@ -48,11 +85,30 @@ class Loan extends Equatable {
   final LocalDate? dueDate;
   final String? note;
 
-  /// Fully paid back (or written off) and moved to the settled list.
+  /// Closed: fully paid back, or cancelled. Closed loans move to the
+  /// settled list and no longer count as outstanding.
   final bool settled;
+
+  /// Closed without being fully repaid (e.g. forgiven or recorded by
+  /// mistake). Always implies [settled].
+  final bool cancelled;
 
   /// The latest change has not reached the server yet.
   final bool hasPendingWrites;
+
+  LoanStatus get status {
+    if (cancelled) return LoanStatus.cancelled;
+    if (settled || repaidMinor >= amountMinor) return LoanStatus.fullyRepaid;
+    if (repaidMinor > 0) return LoanStatus.partiallyRepaid;
+    return LoanStatus.outstanding;
+  }
+
+  /// The largest repayment that can still be recorded.
+  int get remainingMinor {
+    if (settled) return 0;
+    final left = amountMinor - repaidMinor;
+    return left < 0 ? 0 : left;
+  }
 
   /// What is still owed; zero once settled.
   int get outstandingMinor {
@@ -69,8 +125,16 @@ class Loan extends Equatable {
       !settled && dueDate != null && dueDate! < today;
 
   /// Adds a repayment; the loan settles itself once fully repaid.
+  /// Throws [ArgumentError] for a non-positive amount or one larger than
+  /// what is still owed, so totals can never exceed the loan.
   Loan withRepayment(int minor) {
-    final repaid = (repaidMinor + minor).clamp(0, amountMinor);
+    if (minor <= 0) {
+      throw ArgumentError.value(minor, 'minor', 'must be positive');
+    }
+    if (minor > remainingMinor) {
+      throw ArgumentError.value(minor, 'minor', 'exceeds what is still owed');
+    }
+    final repaid = repaidMinor + minor;
     return copyWith(repaidMinor: repaid, settled: repaid >= amountMinor);
   }
 
@@ -84,6 +148,7 @@ class Loan extends Equatable {
     LocalDate? Function()? dueDate,
     String? Function()? note,
     bool? settled,
+    bool? cancelled,
   }) {
     return Loan(
       id: id,
@@ -96,6 +161,7 @@ class Loan extends Equatable {
       dueDate: dueDate != null ? dueDate() : this.dueDate,
       note: note != null ? note() : this.note,
       settled: settled ?? this.settled,
+      cancelled: cancelled ?? this.cancelled,
     );
   }
 
@@ -111,6 +177,7 @@ class Loan extends Equatable {
     dueDate,
     note,
     settled,
+    cancelled,
     hasPendingWrites,
   ];
 }
@@ -122,6 +189,10 @@ class LoanTotals extends Equatable {
     required this.toPayMinor,
     required this.openCount,
     required this.overdueCount,
+    this.lentMinor = 0,
+    this.borrowedMinor = 0,
+    this.returnedToMeMinor = 0,
+    this.repaidByMeMinor = 0,
   });
 
   factory LoanTotals.of(
@@ -133,8 +204,21 @@ class LoanTotals extends Equatable {
     var pay = 0;
     var open = 0;
     var overdue = 0;
+    var lent = 0;
+    var borrowed = 0;
+    var returned = 0;
+    var repaidByMe = 0;
     for (final l in loans) {
-      if (l.settled || l.currencyCode != currencyCode) continue;
+      // Other currencies are never added in without a conversion.
+      if (l.currencyCode != currencyCode || l.cancelled) continue;
+      if (l.direction == LoanDirection.lent) {
+        lent += l.amountMinor;
+        returned += l.repaidMinor;
+      } else {
+        borrowed += l.amountMinor;
+        repaidByMe += l.repaidMinor;
+      }
+      if (l.settled) continue;
       open++;
       if (l.isOverdue(today)) overdue++;
       if (l.direction == LoanDirection.lent) {
@@ -148,9 +232,22 @@ class LoanTotals extends Equatable {
       toPayMinor: pay,
       openCount: open,
       overdueCount: overdue,
+      lentMinor: lent,
+      borrowedMinor: borrowed,
+      returnedToMeMinor: returned,
+      repaidByMeMinor: repaidByMe,
     );
   }
 
+  /// Originally lent / borrowed (not cancelled), in this currency.
+  final int lentMinor;
+  final int borrowedMinor;
+
+  /// Paid back so far, to the user / by the user.
+  final int returnedToMeMinor;
+  final int repaidByMeMinor;
+
+  /// Still to receive (outstanding lent money).
   final int toReceiveMinor;
   final int toPayMinor;
   final int openCount;
@@ -164,5 +261,9 @@ class LoanTotals extends Equatable {
     toPayMinor,
     openCount,
     overdueCount,
+    lentMinor,
+    borrowedMinor,
+    returnedToMeMinor,
+    repaidByMeMinor,
   ];
 }

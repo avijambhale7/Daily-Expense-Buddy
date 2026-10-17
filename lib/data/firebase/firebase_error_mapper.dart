@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../core/errors/app_failure.dart';
+import '../../core/logging/app_logger.dart';
 
 abstract final class FirebaseErrorMapper {
   static AppFailure auth(Object error) {
@@ -67,6 +68,18 @@ abstract final class FirebaseErrorMapper {
             'For your security, please confirm your password and try again.',
             cause: error,
           );
+        case 'expired-action-code':
+          return AppFailure(
+            FailureKind.expiredLink,
+            'This link has expired. Request a new email and try again.',
+            cause: error,
+          );
+        case 'invalid-action-code':
+          return AppFailure(
+            FailureKind.invalidLink,
+            'This link is invalid or has already been used.',
+            cause: error,
+          );
         case 'operation-not-allowed':
           return AppFailure(
             FailureKind.unavailable,
@@ -123,9 +136,13 @@ abstract final class FirebaseErrorMapper {
             cause: error,
           );
         case 'failed-precondition':
+          // Usually a missing composite index; Firestore's message contains
+          // the console link that creates it. Keep that in the logs only.
+          AppLogger.warn('Firestore', 'Query needs an index: ${error.message}');
           return AppFailure(
             FailureKind.unavailable,
-            'This view needs a database index that has not been deployed yet.',
+            "We couldn't load this filtered view right now. "
+            'Try again, or clear the filters to see all your expenses.',
             cause: error,
           );
       }

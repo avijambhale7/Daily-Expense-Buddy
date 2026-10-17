@@ -62,6 +62,7 @@ Future<TestHarness> createHarness({
   Map<String, Object> initialPrefs = const {},
   UserSession Function(UserSession base)? overrideSession,
   bool withOnboarding = false,
+  AuthRepository Function(MockFirebaseAuth auth)? authFactory,
 }) async {
   await initializeDateFormatting('en_US');
   SharedPreferences.setMockInitialValues(initialPrefs);
@@ -84,7 +85,9 @@ Future<TestHarness> createHarness({
     notifications: NoopNotificationService(),
     locale: 'en_US',
     appVersion: '1.0.0 (test)',
-    authRepository: firebaseReady ? FirebaseAuthRepository(auth) : null,
+    authRepository: firebaseReady
+        ? (authFactory?.call(auth) ?? FirebaseAuthRepository(auth))
+        : null,
     sessionFactory: firebaseReady
         ? (user) {
             final base = baseFactory(user);

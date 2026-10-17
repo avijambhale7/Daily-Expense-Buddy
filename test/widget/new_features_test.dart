@@ -2,6 +2,7 @@ import 'package:daily/app/app_gate.dart';
 import 'package:daily/services/sound/sound_effects.dart';
 import 'package:daily/features/auth/presentation/onboarding_page.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../helpers/test_app.dart';
@@ -38,6 +39,10 @@ Future<void> _tap(WidgetTester tester, Finder finder) async {
 Finder _navItem(String label) =>
     find.descendant(of: find.byType(NavigationBar), matching: find.text(label));
 
+Finder _dialogField(int i) => find
+    .descendant(of: find.byType(AlertDialog), matching: find.byType(TextField))
+    .at(i);
+
 void main() {
   group('Intro slides', () {
     testWidgets('first-time visitors see the intro once, then the welcome', (
@@ -46,7 +51,7 @@ void main() {
       final h = await createHarness(signedIn: false, withOnboarding: true);
       await pumpApp(tester, h);
       expect(find.byType(OnboardingPage), findsOneWidget);
-      expect(find.text('Log expenses in seconds'), findsOneWidget);
+      expect(find.text('Every Expense, Under Control'), findsOneWidget);
 
       await tester.tap(find.text('Skip'));
       await settle(tester, frames: 30);
@@ -72,13 +77,13 @@ void main() {
       await pumpApp(tester, h);
       await tester.tap(_navItem('History'));
       await settle(tester);
-      expect(find.text('Clear filters'), findsNothing);
+      expect(find.textContaining('Clear filters'), findsNothing);
       expect(find.text('Groceries'), findsWidgets);
 
       // Pick a category from the sheet.
       await _tap(tester, find.text('All categories'));
       await _tap(tester, find.text('Food and Drinks').last);
-      expect(find.text('Clear filters'), findsOneWidget);
+      expect(find.text('Clear filters (1)'), findsOneWidget);
       expect(find.text('Groceries'), findsNothing);
       expect(find.textContaining('This view needs'), findsNothing);
 
@@ -92,9 +97,20 @@ void main() {
       await _tap(tester, find.text('Shopping').last);
       await _tap(tester, find.text('Any payment'));
       await _tap(tester, find.text('Card').last);
-      expect(find.text('Clear filters'), findsOneWidget);
-      await _tap(tester, find.text('Clear filters'));
-      expect(find.text('Clear filters'), findsNothing);
+      expect(find.text('Clear filters (2)'), findsOneWidget);
+      // Search counts as a filter and is cleared with the rest.
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Search notes and merchants'),
+        'zzz',
+      );
+      await settle(tester);
+      expect(find.text('Clear filters (3)'), findsOneWidget);
+      await _tap(tester, find.text('Clear filters (3)'));
+      expect(find.textContaining('Clear filters'), findsNothing);
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        isEmpty,
+      );
       expect(find.text('Groceries'), findsWidgets);
       expect(find.text('Shopping'), findsWidgets);
     });
@@ -144,15 +160,109 @@ void main() {
       await settle(tester);
       await tester.tap(find.text('Record money received'));
       await settle(tester);
-      await tester.enterText(find.byType(TextField).last, '200');
+      // More than is owed is refused in the dialog.
+      await tester.enterText(_dialogField(0), '600');
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+      expect(find.textContaining('more than the'), findsOneWidget);
+
+      await tester.enterText(_dialogField(0), '200');
+      await tester.enterText(_dialogField(1), 'First instalment');
       await tester.tap(find.text('Save'));
       await settle(tester);
       expect(find.text(r'$300.00'), findsWidgets);
-      final after = await tester.runAsync(
+      expect(find.text('Partially repaid'), findsOneWidget);
+      final loans = await tester.runAsync(
         () => h.db.collection('users/$testUid/loans').get(),
       );
-      expect(after!.docs.single.data()['repaidMinor'], 20000);
+      final loan = loans!.docs.single;
+      expect(loan.data()['repaidMinor'], 20000);
+      expect(loan.data()['settled'], isFalse);
+      // The repayment is kept as history under the loan.
+      final history = await tester.runAsync(
+        () => loan.reference.collection('repayments').get(),
+      );
+      expect(history!.docs.single.data()['amountMinor'], 20000);
+      expect(history.docs.single.data()['note'], 'First instalment');
       // A partial repayment doesn't settle the loan, so no celebration.
+      expect(h.sounds.played, isNot(contains(Sfx.celebrate)));
+
+      // Paying the rest closes it, records the final repayment and
+      // celebrates.
+      await tester.tap(find.text('Rahul'));
+      await settle(tester);
+      expect(find.text('Repayment history'), findsOneWidget);
+      expect(find.textContaining('First instalment'), findsOneWidget);
+      await tester.tap(find.text('Mark as fully repaid'));
+      await settle(tester);
+      final closed = await tester.runAsync(() => loan.reference.get());
+      expect(closed!.data()!['repaidMinor'], 50000);
+      expect(closed.data()!['settled'], isTrue);
+      final full = await tester.runAsync(
+        () => loan.reference.collection('repayments').get(),
+      );
+      expect(full!.docs.map((d) => d.data()['amountMinor']).toSet(), {
+        20000,
+        30000,
+      });
+      expect(h.sounds.played, contains(Sfx.celebrate));
+      expect(find.text('No active loans'), findsOneWidget);
+    });
+
+    testWidgets('borrowed loans, cancelling, search and filters', (
+      tester,
+    ) async {
+      final h = await createHarness();
+      final loans = h.db.collection('users/$testUid/loans');
+      Map<String, Object?> loan(String name, String direction, int amount) => {
+        'direction': direction,
+        'personName': name,
+        'amountMinor': amount,
+        'repaidMinor': 0,
+        'currency': 'USD',
+        'date': '2025-10-10',
+        'settled': false,
+      };
+      await loans.doc('a').set(loan('Asha', 'lent', 10000));
+      await loans.doc('b').set(loan('Ben', 'borrowed', 25000));
+      await pumpApp(tester, h);
+      GoRouter.of(tester.element(find.byType(Scaffold).first)).go('/loans');
+      await settle(tester);
+
+      expect(find.text('Asha'), findsOneWidget);
+      expect(find.text('Ben'), findsOneWidget);
+      expect(find.text('Money borrowed'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Borrowed'));
+      await settle(tester);
+      expect(find.text('Asha'), findsNothing);
+      expect(find.text('Ben'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(ChoiceChip, 'All'));
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Search by name'),
+        'ash',
+      );
+      await settle(tester);
+      expect(find.text('Asha'), findsOneWidget);
+      expect(find.text('Ben'), findsNothing);
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Search by name'),
+        '',
+      );
+      await settle(tester);
+
+      // Cancelling closes the loan without pretending it was repaid.
+      await tester.tap(find.text('Ben'));
+      await settle(tester);
+      expect(find.text('You owe Ben'), findsOneWidget);
+      await tester.ensureVisible(find.text('Cancel loan'));
+      await tester.tap(find.text('Cancel loan'));
+      await settle(tester);
+      final ben = await tester.runAsync(() => loans.doc('b').get());
+      expect(ben!.data()!['cancelled'], isTrue);
+      expect(ben.data()!['repaidMinor'], 0);
+      expect(find.text('Ben'), findsNothing);
       expect(h.sounds.played, isNot(contains(Sfx.celebrate)));
     });
   });

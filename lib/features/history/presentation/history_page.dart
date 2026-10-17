@@ -60,6 +60,12 @@ class _HistoryViewState extends State<_HistoryView> {
     super.dispose();
   }
 
+  void _clearAll() {
+    _debounce?.cancel();
+    _search.clear();
+    context.read<HistoryBloc>().add(const HistoryFiltersCleared());
+  }
+
   void _onSearch(String q) {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 250), () {
@@ -121,6 +127,7 @@ class _HistoryViewState extends State<_HistoryView> {
                   child: _Filters(
                     search: _search,
                     onSearch: _onSearch,
+                    onClearAll: _clearAll,
                     state: state,
                   ),
                 ),
@@ -145,10 +152,12 @@ class _HistoryViewState extends State<_HistoryView> {
         SliverFillRemaining(
           hasScrollBody: false,
           child: ErrorView(
-            message: state.error ?? 'Could not load your history.',
-            onRetry: () => context.read<HistoryBloc>().add(
-              HistoryFilterChanged(state.filter),
-            ),
+            message:
+                state.error ??
+                "We couldn't load your expenses. "
+                    'Check your connection and try again.',
+            onRetry: () =>
+                context.read<HistoryBloc>().add(const HistoryRetried()),
           ),
         ),
       ];
@@ -177,19 +186,11 @@ class _HistoryViewState extends State<_HistoryView> {
                           ),
                           child: const Text('Load more'),
                         )
-                      : state.filter.hasFilters
-                      ? FilledButton.tonalIcon(
-                          onPressed: () => context.read<HistoryBloc>().add(
-                            HistoryFilterChanged(
-                              ExpenseFilter(
-                                newestFirst: state.filter.newestFirst,
-                              ),
-                            ),
-                          ),
+                      : FilledButton.tonalIcon(
+                          onPressed: _clearAll,
                           icon: const Icon(Icons.filter_alt_off_rounded),
                           label: const Text('Clear filters'),
-                        )
-                      : null)
+                        ))
                 : FilledButton.icon(
                     onPressed: () => openExpenseEditor(context),
                     icon: const Icon(Icons.add_rounded),
@@ -342,11 +343,13 @@ class _Filters extends StatelessWidget {
   const _Filters({
     required this.search,
     required this.onSearch,
+    required this.onClearAll,
     required this.state,
   });
 
   final TextEditingController search;
   final ValueChanged<String> onSearch;
+  final VoidCallback onClearAll;
   final HistoryState state;
 
   @override
@@ -419,7 +422,8 @@ class _Filters extends StatelessWidget {
       if (picked != null) apply(f.copyWith(paymentMethod: () => picked.value));
     }
 
-    final hasFilters = f.hasFilters;
+    final active = state.activeFilterCount;
+    final hasFilters = active > 0;
     return Padding(
       padding: const EdgeInsets.only(top: Space.sm, bottom: Space.sm),
       child: Column(
@@ -459,15 +463,16 @@ class _Filters extends StatelessWidget {
                               size: 18,
                               color: context.colors.onErrorContainer,
                             ),
-                            label: const Text('Clear filters'),
+                            label: Text('Clear filters ($active)'),
+                            tooltip:
+                                '$active active filter'
+                                '${active == 1 ? '' : 's'}. Tap to clear all.',
                             labelStyle: TextStyle(
                               color: context.colors.onErrorContainer,
                             ),
                             backgroundColor: context.colors.errorContainer,
                             side: BorderSide.none,
-                            onPressed: () => apply(
-                              ExpenseFilter(newestFirst: f.newestFirst),
-                            ),
+                            onPressed: onClearAll,
                           ),
                         )
                       : const SizedBox.shrink(),

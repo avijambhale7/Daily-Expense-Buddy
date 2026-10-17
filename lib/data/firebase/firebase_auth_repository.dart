@@ -67,7 +67,7 @@ class FirebaseAuthRepository implements AuthRepository {
     final user = cred.user;
     if (user == null) throw AppFailure.unknown();
     await user.updateDisplayName(name.trim());
-    await user.sendEmailVerification();
+    await _sendVerification(user);
     await user.reload();
   });
 
@@ -84,8 +84,55 @@ class FirebaseAuthRepository implements AuthRepository {
   Future<void> sendEmailVerification() => _guard('verifyEmail', () async {
     final user = _auth.currentUser;
     if (user == null) throw _signedOut;
-    await user.sendEmailVerification();
+    await _sendVerification(user);
   });
+
+  /// Where the verification link continues to: the app's hosted web
+  /// address, which the Android app also claims as an App Link.
+  ActionCodeSettings? get _actionSettings {
+    final String projectId;
+    try {
+      projectId = _auth.app.options.projectId;
+    } catch (_) {
+      return null; // Test doubles without a Firebase app.
+    }
+    if (projectId.isEmpty) return null;
+    return ActionCodeSettings(url: 'https://$projectId.web.app/verify-email');
+  }
+
+  Future<void> _sendVerification(User user) async {
+    final settings = _actionSettings;
+    if (settings == null) return user.sendEmailVerification();
+    try {
+      await user.sendEmailVerification(settings);
+    } on FirebaseAuthException catch (e) {
+      // A misconfigured continue URL must never block sign-up: fall back to
+      // Firebase's default link.
+      if (!e.code.contains('continue-uri')) rethrow;
+      AppLogger.warn(
+        'Auth',
+        'Continue URL rejected (${e.code}); using default',
+      );
+      await user.sendEmailVerification();
+    }
+  }
+
+  @override
+  Future<void> applyEmailActionCode(String code) =>
+      _guard('applyActionCode', () => _auth.applyActionCode(code));
+
+  @override
+  Future<String> verifyPasswordResetCode(String code) =>
+      _guard('verifyResetCode', () => _auth.verifyPasswordResetCode(code));
+
+  @override
+  Future<void> confirmPasswordReset({
+    required String code,
+    required String newPassword,
+  }) => _guard(
+    'confirmReset',
+    () => _auth.confirmPasswordReset(code: code, newPassword: newPassword),
+  );
 
   @override
   Future<UserProfile?> reloadUser() => _guard('reload', () async {

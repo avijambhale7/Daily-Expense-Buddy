@@ -17,6 +17,7 @@ import '../../../core/widgets/common.dart';
 import '../../../domain/models/user_preferences.dart';
 import '../../../services/sound/sound_effects.dart';
 import '../../auth/cubit/auth_cubit.dart';
+import '../../auth/presentation/onboarding_page.dart';
 import '../../export/export_dialog.dart';
 
 /// Signs out after warning about changes that have not synced yet.
@@ -297,6 +298,20 @@ class SettingsPage extends StatelessWidget {
                     subtitle: const Text('Password reset, delete account'),
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: () => context.go(Routes.account),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.slideshow_rounded),
+                    title: const Text('Feature tour'),
+                    subtitle: const Text('See the introduction again'),
+                    onTap: () =>
+                        Navigator.of(context, rootNavigator: true).push(
+                          MaterialPageRoute<void>(
+                            fullscreenDialog: true,
+                            builder: (route) => OnboardingPage(
+                              onDone: () => Navigator.of(route).pop(),
+                            ),
+                          ),
+                        ),
                   ),
                   ListTile(
                     leading: const Icon(Icons.help_outline_rounded),

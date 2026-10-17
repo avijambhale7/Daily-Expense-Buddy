@@ -130,6 +130,34 @@ void main() {
       expect(go(AuthState.fromUser(unverified), '/verify-email'), isNull);
     });
 
+    test('email links open in every auth state, before splash and intro', () {
+      const link = '/auth/action?mode=verifyEmail&oobCode=x';
+      for (final auth in [
+        const AuthState.unknown(),
+        const AuthState.unauthenticated(),
+        AuthState.fromUser(unverified),
+        AuthState.fromUser(verified),
+      ]) {
+        expect(go(auth, link), isNull, reason: '${auth.status}');
+      }
+      expect(
+        resolveRedirect(
+          auth: const AuthState.unauthenticated(),
+          firebaseReady: true,
+          uri: Uri.parse(link),
+          matchedLocation: Routes.emailAction,
+          splashDone: false,
+          onboardingSeen: false,
+        ),
+        isNull,
+      );
+      expect(
+        Routes.safeReturnPath(link),
+        isNull,
+        reason: 'never a return path',
+      );
+    });
+
     test(
       'authenticated users leave auth screens, honouring safe return paths',
       () {

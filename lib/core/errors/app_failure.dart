@@ -11,6 +11,12 @@ enum FailureKind {
   conflict,
   notFound,
   unavailable,
+
+  /// An email action link (verification, password reset) has expired.
+  expiredLink,
+
+  /// An email action link is malformed or was already used.
+  invalidLink,
   unknown,
 }
 

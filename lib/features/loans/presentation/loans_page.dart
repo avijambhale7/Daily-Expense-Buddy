@@ -38,6 +38,10 @@ class _LoansPageState extends State<LoansPage> {
       .watchAll();
   bool _showSettled = false;
 
+  /// null = both directions.
+  LoanDirection? _direction;
+  String _query = '';
+
   @override
   Widget build(BuildContext context) {
     final fmt = AppFormat.of(context);
@@ -62,14 +66,22 @@ class _LoansPageState extends State<LoansPage> {
           final loans = snap.data;
           if (loans == null) return const LoadingView();
           final totals = LoanTotals.of(loans, fmt.currencyCode, today);
-          final shown = loans.where((l) => l.settled == _showSettled).toList()
-            ..sort((a, b) {
-              // Overdue first, then by due date, then newest.
-              final ao = a.isOverdue(today) ? 0 : 1;
-              final bo = b.isOverdue(today) ? 0 : 1;
-              if (ao != bo) return ao - bo;
-              return b.date.compareTo(a.date);
-            });
+          final q = _query.trim().toLowerCase();
+          final shown =
+              loans
+                  .where((l) => l.settled == _showSettled)
+                  .where((l) => _direction == null || l.direction == _direction)
+                  .where(
+                    (l) => q.isEmpty || l.personName.toLowerCase().contains(q),
+                  )
+                  .toList()
+                ..sort((a, b) {
+                  // Overdue first, then by due date, then newest.
+                  final ao = a.isOverdue(today) ? 0 : 1;
+                  final bo = b.isOverdue(today) ? 0 : 1;
+                  if (ao != bo) return ao - bo;
+                  return b.date.compareTo(a.date);
+                });
           final pad = pagePadding(context);
           return ListView(
             padding: pad,
@@ -83,7 +95,7 @@ class _LoansPageState extends State<LoansPage> {
                       children: [
                         Expanded(
                           child: _TotalCard(
-                            label: "You'll get",
+                            label: 'Still to get back',
                             amount: fmt.amount(totals.toReceiveMinor),
                             icon: Icons.south_west_rounded,
                             color: loanColor(context, LoanDirection.lent),
@@ -92,7 +104,7 @@ class _LoansPageState extends State<LoansPage> {
                         const SizedBox(width: Space.md),
                         Expanded(
                           child: _TotalCard(
-                            label: 'You owe',
+                            label: 'Still to repay',
                             amount: fmt.amount(totals.toPayMinor),
                             icon: Icons.north_east_rounded,
                             color: loanColor(context, LoanDirection.borrowed),
@@ -100,6 +112,8 @@ class _LoansPageState extends State<LoansPage> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: Space.md),
+                    _LoanFlowCard(totals: totals, format: fmt),
                     if (totals.overdueCount > 0) ...[
                       const SizedBox(height: Space.md),
                       InfoBanner(
@@ -121,7 +135,7 @@ class _LoansPageState extends State<LoansPage> {
                         ButtonSegment(
                           value: true,
                           label: Text(
-                            'Settled (${loans.where((l) => l.settled).length})',
+                            'Closed (${loans.where((l) => l.settled).length})',
                           ),
                         ),
                       ],
@@ -129,6 +143,34 @@ class _LoansPageState extends State<LoansPage> {
                       onSelectionChanged: (s) =>
                           setState(() => _showSettled = s.first),
                     ),
+                    if (loans.isNotEmpty) ...[
+                      const SizedBox(height: Space.md),
+                      TextField(
+                        onChanged: (v) => setState(() => _query = v),
+                        decoration: const InputDecoration(
+                          hintText: 'Search by name',
+                          prefixIcon: Icon(Icons.search_rounded),
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: Space.sm),
+                      Wrap(
+                        spacing: Space.sm,
+                        children: [
+                          for (final (value, label) in const [
+                            (null, 'All'),
+                            (LoanDirection.lent, 'Lent'),
+                            (LoanDirection.borrowed, 'Borrowed'),
+                          ])
+                            ChoiceChip(
+                              label: Text(label),
+                              selected: _direction == value,
+                              onSelected: (_) =>
+                                  setState(() => _direction = value),
+                            ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: Space.lg),
                     if (shown.isEmpty)
                       EmptyState(
@@ -136,14 +178,19 @@ class _LoansPageState extends State<LoansPage> {
                         icon: _showSettled
                             ? Icons.task_alt_rounded
                             : Icons.handshake_rounded,
-                        title: _showSettled
-                            ? 'No settled loans yet'
+                        title: q.isNotEmpty || _direction != null
+                            ? 'No matching loans'
+                            : _showSettled
+                            ? 'No closed loans yet'
                             : 'No active loans',
-                        message: _showSettled
-                            ? 'Loans you mark as settled will move here.'
+                        message: q.isNotEmpty || _direction != null
+                            ? 'Try another name or filter.'
+                            : _showSettled
+                            ? 'Fully repaid and cancelled loans move here.'
                             : 'Keep track of money you lend to or borrow '
                                   'from friends and family.',
-                        action: _showSettled
+                        action:
+                            _showSettled || q.isNotEmpty || _direction != null
                             ? null
                             : FilledButton.icon(
                                 onPressed: () => showLoanEditor(context),
@@ -172,6 +219,66 @@ class _LoansPageState extends State<LoansPage> {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// Money that went out and came back, so original amounts are never
+/// confused with what is still outstanding.
+class _LoanFlowCard extends StatelessWidget {
+  const _LoanFlowCard({required this.totals, required this.format});
+
+  final LoanTotals totals;
+  final AppFormat format;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget cell(String label, int minor) => Expanded(
+      child: MergeSemantics(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: context.text.labelSmall,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                format.amount(minor),
+                style: context.text.titleSmall!.tabular,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(Space.lg),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                cell('Money lent', totals.lentMinor),
+                const SizedBox(width: Space.md),
+                cell('Returned to me', totals.returnedToMeMinor),
+              ],
+            ),
+            const SizedBox(height: Space.md),
+            Row(
+              children: [
+                cell('Money borrowed', totals.borrowedMinor),
+                const SizedBox(width: Space.md),
+                cell('Repaid by me', totals.repaidByMeMinor),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -320,14 +427,18 @@ class LoanTile extends StatelessWidget {
                         _Badge(label: 'Overdue', color: c.error)
                       else if (l.settled)
                         _Badge(
-                          label: 'Settled',
-                          color: context.appColors.success,
+                          label: l.status.label,
+                          color: l.cancelled
+                              ? c.onSurfaceVariant
+                              : context.appColors.success,
                         )
-                      else if (l.repaidMinor > 0)
+                      else if (l.repaidMinor > 0) ...[
+                        _Badge(label: l.status.label, color: color),
                         Text(
                           'of ${money.amount(l.amountMinor)}',
                           style: context.text.labelSmall,
                         ),
+                      ],
                     ],
                   ),
                 ],
@@ -417,7 +528,7 @@ class _LoanDetails extends StatelessWidget {
     Navigator.pop(context);
     try {
       await repository.update(updated);
-      if (updated.settled && !loan.settled) {
+      if (updated.settled && !loan.settled && !updated.cancelled) {
         unawaited(sounds.play(Sfx.celebrate));
       }
       messenger.showSnackBar(SnackBar(content: Text(done)));
@@ -427,24 +538,62 @@ class _LoanDetails extends StatelessWidget {
   }
 
   Future<void> _repay(BuildContext context, AppFormat fmt) async {
-    final amount = await showDialog<int>(
+    final today = LocalDate.today(context.read<AppDependencies>().now);
+    final entry = await showDialog<_RepaymentEntry>(
       context: context,
-      builder: (_) => _RepaymentDialog(loan: loan, format: fmt),
+      builder: (_) => _RepaymentDialog(loan: loan, format: fmt, today: today),
     );
-    if (amount == null || !context.mounted) return;
-    final updated = loan.withRepayment(amount);
-    await _save(
-      context,
-      updated,
-      updated.settled ? 'Fully repaid – loan settled' : 'Repayment recorded',
-    );
+    if (entry == null || !context.mounted) return;
+    await _record(context, entry.amountMinor, entry.date, entry.note);
+  }
+
+  /// Saves a repayment and the new total together; the success sound and
+  /// message only follow once the write was accepted.
+  Future<void> _record(
+    BuildContext context,
+    int amount,
+    LocalDate date,
+    String? note,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final sounds = context.read<AppDependencies>().soundEffects;
+    Navigator.pop(context);
+    final settles = amount >= loan.remainingMinor;
+    try {
+      await repository.addRepayment(
+        loan,
+        LoanRepayment(
+          id: repository.newRepaymentId(loan.id),
+          amountMinor: amount,
+          date: date,
+          note: note,
+        ),
+      );
+      unawaited(sounds.play(settles ? Sfx.celebrate : Sfx.expenseSaved));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            settles ? 'Fully repaid – loan closed' : 'Repayment recorded',
+          ),
+        ),
+      );
+    } on AppFailure catch (f) {
+      messenger.showSnackBar(SnackBar(content: Text(f.message)));
+    } on ArgumentError {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('That is more than is still owed.')),
+      );
+    }
   }
 
   Future<void> _delete(BuildContext context) async {
     final ok = await showConfirmDialog(
       context,
       title: 'Delete this loan?',
-      message: 'The record for ${loan.personName} will be removed everywhere.',
+      message:
+          'The record for ${loan.personName} and its repayment history '
+          'will be removed everywhere. To keep the history, cancel the loan '
+          'instead.',
       confirmLabel: 'Delete',
       destructive: true,
     );
@@ -521,13 +670,21 @@ class _LoanDetails extends StatelessWidget {
             ),
             Center(
               child: Text(
-                loan.settled ? 'Settled' : 'still to ${lent ? 'get' : 'pay'}',
+                loan.settled
+                    ? loan.status.label
+                    : 'still to ${lent ? 'get' : 'pay'}',
                 style: context.text.labelLarge,
               ),
             ),
             const SizedBox(height: Space.lg),
+            row('Status', loan.status.label),
             row('Original amount', money.amount(loan.amountMinor)),
-            row('Paid back', money.amount(loan.repaidMinor)),
+            row(
+              lent ? 'Returned to you' : 'Repaid by you',
+              money.amount(loan.repaidMinor),
+            ),
+            if (!loan.settled)
+              row('Remaining', money.amount(loan.remainingMinor)),
             row('Date', fmt.date(loan.date)),
             if (loan.dueDate != null)
               row(
@@ -538,6 +695,7 @@ class _LoanDetails extends StatelessWidget {
               const SizedBox(height: Space.sm),
               Text(loan.note!, style: context.text.bodyMedium),
             ],
+            _RepaymentHistory(loan: loan, repository: repository, money: money),
             const SizedBox(height: Space.xl),
             if (!loan.settled) ...[
               FilledButton.icon(
@@ -547,19 +705,31 @@ class _LoanDetails extends StatelessWidget {
               ),
               const SizedBox(height: Space.sm),
               FilledButton.tonalIcon(
-                onPressed: () => _save(
+                // Recorded as a final repayment, so the history adds up.
+                onPressed: () => _record(
                   context,
-                  loan.copyWith(repaidMinor: loan.amountMinor, settled: true),
-                  'Loan settled',
+                  loan.remainingMinor,
+                  LocalDate.today(context.read<AppDependencies>().now),
+                  null,
                 ),
                 icon: const Icon(Icons.task_alt_rounded),
-                label: const Text('Mark as settled'),
+                label: const Text('Mark as fully repaid'),
               ),
-            ] else
+              const SizedBox(height: Space.sm),
+              TextButton.icon(
+                onPressed: () => _save(
+                  context,
+                  loan.copyWith(settled: true, cancelled: true),
+                  'Loan cancelled',
+                ),
+                icon: const Icon(Icons.block_rounded),
+                label: const Text('Cancel loan'),
+              ),
+            ] else if (loan.cancelled)
               FilledButton.tonalIcon(
                 onPressed: () => _save(
                   context,
-                  loan.copyWith(settled: false),
+                  loan.copyWith(settled: false, cancelled: false),
                   'Loan reopened',
                 ),
                 icon: const Icon(Icons.undo_rounded),
@@ -598,11 +768,80 @@ class _LoanDetails extends StatelessWidget {
   }
 }
 
+/// Repayment history of a loan, newest first.
+class _RepaymentHistory extends StatelessWidget {
+  const _RepaymentHistory({
+    required this.loan,
+    required this.repository,
+    required this.money,
+  });
+
+  final Loan loan;
+  final LoanRepository repository;
+  final AppFormat money;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<LoanRepayment>>(
+      stream: repository.watchRepayments(loan.id),
+      builder: (context, snap) {
+        if (snap.hasError) {
+          return Padding(
+            padding: const EdgeInsets.only(top: Space.lg),
+            child: Text(
+              "Couldn't load the repayment history.",
+              style: context.text.bodySmall,
+            ),
+          );
+        }
+        final list = snap.data;
+        if (list == null || list.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: Space.lg),
+            Text('Repayment history', style: context.text.titleSmall),
+            const SizedBox(height: Space.xs),
+            for (final r in list)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                leading: const Icon(Icons.check_circle_outline_rounded),
+                title: Text(
+                  money.amount(r.amountMinor),
+                  style: context.text.titleSmall!.tabular,
+                ),
+                subtitle: Text(
+                  [
+                    money.date(r.date),
+                    if (r.note != null && r.note!.isNotEmpty) r.note!,
+                  ].join(' · '),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _RepaymentEntry {
+  const _RepaymentEntry(this.amountMinor, this.date, this.note);
+  final int amountMinor;
+  final LocalDate date;
+  final String? note;
+}
+
 class _RepaymentDialog extends StatefulWidget {
-  const _RepaymentDialog({required this.loan, required this.format});
+  const _RepaymentDialog({
+    required this.loan,
+    required this.format,
+    required this.today,
+  });
 
   final Loan loan;
   final AppFormat format;
+  final LocalDate today;
 
   @override
   State<_RepaymentDialog> createState() => _RepaymentDialogState();
@@ -610,12 +849,28 @@ class _RepaymentDialog extends StatefulWidget {
 
 class _RepaymentDialogState extends State<_RepaymentDialog> {
   final _ctrl = TextEditingController();
+  final _note = TextEditingController();
+  late LocalDate _date = widget.today;
   String? _error;
 
   @override
   void dispose() {
     _ctrl.dispose();
+    _note.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final first = widget.loan.date < widget.today
+        ? widget.loan.date
+        : widget.today;
+    final picked = await showDatePicker(
+      context: context,
+      firstDate: first.toDateTime(),
+      lastDate: widget.today.toDateTime(),
+      initialDate: _date.toDateTime(),
+    );
+    if (picked != null) setState(() => _date = LocalDate.fromDateTime(picked));
   }
 
   void _submit() {
@@ -625,14 +880,17 @@ class _RepaymentDialogState extends State<_RepaymentDialog> {
       setState(() => _error = MoneyParser.messageFor(r.error!, currency));
       return;
     }
-    if (r.minorUnits! > widget.loan.outstandingMinor) {
+    if (r.minorUnits! > widget.loan.remainingMinor) {
       setState(
         () => _error =
-            'That is more than the ${widget.format.amount(widget.loan.outstandingMinor)} still owed.',
+            'That is more than the ${widget.format.amount(widget.loan.remainingMinor)} still owed.',
       );
       return;
     }
-    Navigator.pop(context, r.minorUnits);
+    Navigator.pop(
+      context,
+      _RepaymentEntry(r.minorUnits!, _date, _note.text.trim()),
+    );
   }
 
   @override
@@ -640,24 +898,26 @@ class _RepaymentDialogState extends State<_RepaymentDialog> {
     final currency = widget.format.currency;
     return AlertDialog(
       title: const Text('How much was paid back?'),
-      content: TextField(
-        controller: _ctrl,
-        autofocus: true,
-        keyboardType: TextInputType.numberWithOptions(
-          decimal: currency.minorDigits > 0,
-        ),
-        inputFormatters: [
-          FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
-          LengthLimitingTextInputFormatter(20),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _amountField(currency),
+          const SizedBox(height: Space.md),
+          TextField(
+            controller: _note,
+            maxLength: 200,
+            decoration: const InputDecoration(labelText: 'Note (optional)'),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _pickDate,
+              icon: const Icon(Icons.event_rounded),
+              label: Text('Paid on ${widget.format.date(_date)}'),
+            ),
+          ),
         ],
-        onSubmitted: (_) => _submit(),
-        decoration: InputDecoration(
-          prefixText: '${currency.symbol} ',
-          helperText:
-              'Still owed: ${widget.format.amount(widget.loan.outstandingMinor)}',
-          errorText: _error,
-          errorMaxLines: 2,
-        ),
       ),
       actions: [
         TextButton(
@@ -666,6 +926,28 @@ class _RepaymentDialogState extends State<_RepaymentDialog> {
         ),
         FilledButton(onPressed: _submit, child: const Text('Save')),
       ],
+    );
+  }
+
+  Widget _amountField(CurrencyConfiguration currency) {
+    return TextField(
+      controller: _ctrl,
+      autofocus: true,
+      keyboardType: TextInputType.numberWithOptions(
+        decimal: currency.minorDigits > 0,
+      ),
+      inputFormatters: [
+        FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+        LengthLimitingTextInputFormatter(20),
+      ],
+      onSubmitted: (_) => _submit(),
+      decoration: InputDecoration(
+        prefixText: '${currency.symbol} ',
+        helperText:
+            'Still owed: ${widget.format.amount(widget.loan.outstandingMinor)}',
+        errorText: _error,
+        errorMaxLines: 2,
+      ),
     );
   }
 }
@@ -777,7 +1059,16 @@ class _LoanEditorState extends State<_LoanEditor> {
     if (_nameError != null || _amountError != null) return;
     final amount = parsed.minorUnits!;
     final base = widget.loan;
-    final repaid = base == null ? 0 : base.repaidMinor.clamp(0, amount);
+    // The amount can't drop below what the repayment history adds up to.
+    if (base != null && amount < base.repaidMinor) {
+      setState(
+        () => _amountError =
+            '${widget.format.amount(base.repaidMinor)} has already been paid '
+            'back, so the amount cannot be lower.',
+      );
+      return;
+    }
+    final repaid = base?.repaidMinor ?? 0;
     final loan = Loan(
       id: _id,
       direction: _direction,
@@ -788,7 +1079,8 @@ class _LoanEditorState extends State<_LoanEditor> {
       date: _date,
       dueDate: _due,
       note: _note.text.trim().isEmpty ? null : _note.text.trim(),
-      settled: base != null && repaid >= amount,
+      settled: base != null && (repaid >= amount || base.cancelled),
+      cancelled: base?.cancelled ?? false,
     );
     setState(() => _saving = true);
     final messenger = ScaffoldMessenger.of(context);
@@ -950,111 +1242,6 @@ class _LoanEditorState extends State<_LoanEditor> {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// Compact "you'll get / you owe" card for the home screen. Renders nothing
-/// until the user has at least one active loan.
-class LoansSummaryCard extends StatefulWidget {
-  const LoansSummaryCard({super.key, required this.onOpen});
-
-  final VoidCallback onOpen;
-
-  @override
-  State<LoansSummaryCard> createState() => _LoansSummaryCardState();
-}
-
-class _LoansSummaryCardState extends State<LoansSummaryCard> {
-  late final Stream<List<Loan>> _loans = SessionScope.of(context).loans
-      .watchAll();
-
-  @override
-  Widget build(BuildContext context) {
-    final fmt = AppFormat.of(context);
-    final today = LocalDate.today(context.read<AppDependencies>().now);
-    return StreamBuilder<List<Loan>>(
-      stream: _loans,
-      builder: (context, snap) {
-        final loans = snap.data;
-        if (loans == null) return const SizedBox.shrink();
-        final t = LoanTotals.of(loans, fmt.currencyCode, today);
-        if (t.isEmpty) return const SizedBox.shrink();
-        Widget side(String label, int amount, LoanDirection d) => Expanded(
-          child: Row(
-            children: [
-              IconBadge(
-                icon: d == LoanDirection.lent
-                    ? Icons.south_west_rounded
-                    : Icons.north_east_rounded,
-                color: loanColor(context, d),
-                size: 32,
-              ),
-              const SizedBox(width: Space.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(label, style: context.text.labelMedium),
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        fmt.amount(amount),
-                        style: context.text.titleMedium!.tabular.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: loanColor(context, d),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-        return Padding(
-          padding: const EdgeInsets.only(bottom: Space.lg),
-          child: Card(
-            child: InkWell(
-              onTap: widget.onOpen,
-              child: Padding(
-                padding: const EdgeInsets.all(Space.lg),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text('Loans', style: context.text.titleMedium),
-                        ),
-                        if (t.overdueCount > 0)
-                          _Badge(
-                            label: '${t.overdueCount} overdue',
-                            color: context.colors.error,
-                          ),
-                        const Icon(Icons.chevron_right_rounded),
-                      ],
-                    ),
-                    const SizedBox(height: Space.md),
-                    Row(
-                      children: [
-                        side(
-                          "You'll get",
-                          t.toReceiveMinor,
-                          LoanDirection.lent,
-                        ),
-                        const SizedBox(width: Space.md),
-                        side('You owe', t.toPayMinor, LoanDirection.borrowed),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 }

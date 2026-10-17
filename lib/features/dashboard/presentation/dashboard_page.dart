@@ -20,7 +20,6 @@ import '../../../shared/widgets/expense_tile.dart';
 import '../../auth/cubit/auth_cubit.dart';
 import '../../calendar/day_status_actions.dart';
 import '../../expenses/presentation/expense_editor.dart';
-import '../../loans/presentation/loans_page.dart';
 import '../cubit/dashboard_cubit.dart';
 import 'mobile_hero.dart';
 
@@ -195,11 +194,6 @@ class _DashboardContent extends StatelessWidget {
         value: format.amount(s.monthTotalMinor),
         icon: Icons.calendar_view_month_rounded,
       ),
-      StatTile(
-        label: '${s.today.year} so far',
-        value: format.amount(s.yearTotalMinor),
-        icon: Icons.calendar_today_rounded,
-      ),
     ];
     final weekChart = SectionCard(
       title: 'This week',
@@ -308,7 +302,6 @@ class _DashboardContent extends StatelessWidget {
                 if (missed.isVisible) ...[gap, missed],
                 gap,
                 for (final e in extras) ...[e, gap],
-                LoansSummaryCard(onOpen: () => context.go(Routes.loans)),
                 weekChart,
                 gap,
                 recentCard,
@@ -349,8 +342,6 @@ class _DashboardContent extends StatelessWidget {
             ],
             if (missed.isVisible) ...[gap, missed],
             for (final e in extras) ...[gap, e],
-            gap,
-            LoansSummaryCard(onOpen: () => context.go(Routes.loans)),
             gap,
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,

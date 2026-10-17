@@ -37,23 +37,18 @@ class FirestoreExpenseRepository implements ExpenseRepository {
         throw FirebaseErrorMapper.firestore(e);
       });
 
-  /// Category and payment filters are equality-only queries, which Firestore
-  /// serves from its automatic single-field indexes. Date range, ordering and
-  /// the page limit are then applied on the device, so no composite index
-  /// has to be deployed for any filter combination.
-  bool _needsClientSide(ExpenseFilter f) =>
-      f.categoryId != null || f.paymentMethod != null;
-
+  /// Every filter runs on the server with a stable `date` ordering, so the
+  /// page limit is honoured for every combination. Category and payment
+  /// filters combined with that ordering use the composite indexes in
+  /// `firestore.indexes.json` (deploy with
+  /// `firebase deploy --only firestore:indexes`).
   Query<Map<String, dynamic>> _query(ExpenseFilter filter) {
     Query<Map<String, dynamic>> q = _col;
-    if (_needsClientSide(filter)) {
-      if (filter.categoryId != null) {
-        q = q.where('categoryId', isEqualTo: filter.categoryId);
-      }
-      if (filter.paymentMethod != null) {
-        q = q.where('paymentMethod', isEqualTo: filter.paymentMethod!.key);
-      }
-      return q;
+    if (filter.categoryId != null) {
+      q = q.where('categoryId', isEqualTo: filter.categoryId);
+    }
+    if (filter.paymentMethod != null) {
+      q = q.where('paymentMethod', isEqualTo: filter.paymentMethod!.key);
     }
     final range = filter.range;
     if (range != null) {
@@ -64,13 +59,9 @@ class FirestoreExpenseRepository implements ExpenseRepository {
     return q.orderBy('date', descending: filter.newestFirst);
   }
 
-  /// Applies the date range and sort order on the device.
+  /// Breaks ties between expenses on the same date consistently.
   List<Expense> _refine(List<Expense> items, ExpenseFilter filter) {
-    final range = filter.range;
-    final list = range == null
-        ? items
-        : items.where((e) => range.contains(e.date)).toList();
-    return list..sort(
+    return items..sort(
       filter.newestFirst
           ? Expense.newestFirst
           : (a, b) => Expense.newestFirst(b, a),
@@ -90,8 +81,7 @@ class FirestoreExpenseRepository implements ExpenseRepository {
 
   @override
   Stream<ExpensePage> watchHistory(ExpenseFilter filter, {required int limit}) {
-    final clientSide = _needsClientSide(filter);
-    final query = clientSide ? _query(filter) : _query(filter).limit(limit + 1);
+    final query = _query(filter).limit(limit + 1);
     return _mapErrors(
       query.snapshots(includeMetadataChanges: true).map((snap) {
         final items = _refine(_parse(snap), filter);

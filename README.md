@@ -33,11 +33,14 @@ reminders, and sync everything across devices through Firebase.
 
 | Area | What works |
 |---|---|
-| Authentication | Email/password sign-up and login, logout, password reset email, email verification (required before any data access), session restore, account settings, account deletion with re-authentication |
+| Authentication | Email/password sign-up and login, logout, password reset email, email verification (required before any data access), session restore, account settings, account deletion with re-authentication. Links in Firebase emails open an in-app screen (`/auth/action`, Android App Link or web) that applies the code with Firebase and shows verified / expired / invalid / retry states. See [docs/EMAIL_VERIFICATION_SETUP.md](docs/EMAIL_VERIFICATION_SETUP.md) |
+| Splash & intro | Short animated splash at launch. Four intro slides (Skip, Back, Next, Get started) shown once per device to signed-out visitors. Signed-in users never see them. They can be replayed from Settings → Feature tour |
 | Expenses | Add, edit and delete. Past dates are supported. Amount is the only required field (category defaults to "Other"). Optional merchant, note and payment method. Duplicate-submit protection |
-| Dashboard | Greeting, today/week/month/year totals, this-week bar chart, 6-month trend, category donut, recent expenses, today's completion status, missed-day prompt ("Complete Yesterday's Expenses") |
-| History | Grouped list on phones, table on desktop. Search (merchant/note), date range, category, payment method, newest/oldest sorting, incremental loading, CSV export of the current filters |
-| Reports | Day, week, month, year and custom ranges with previous/next navigation. Total, average per calendar day, average per spending day, highest/lowest day, monthly figures for years, category breakdown, comparison with the equivalent previous period |
+| Dashboard | Greeting, today's spending with a labelled progress ring (budget left today, or days tracked this week), Add Expense, this week / this month totals, this-week bar chart, recent expenses, today's completion status, missed-day prompt |
+| History | Grouped list on phones, table on desktop. Search (merchant/note), date range, category, payment method, newest/oldest sorting. Every filter runs on the server with a page limit (composite indexes in `firestore.indexes.json`). "Clear filters (n)" also resets the search. Stale results from a previous filter are discarded. Incremental loading, CSV export of the current filters |
+| Reports | Day, week, month, year and custom ranges with previous/next navigation. Total, average per calendar day, **estimated spending** (This week / This month: spent so far ÷ elapsed calendar days × days in the period; disabled while a past period is shown), highest/lowest day, monthly figures for years, category breakdown, comparison with the equivalent previous period |
+| Lending & Borrowing | Money lent / borrowed with person, amount, date, optional due date and note. Partial repayments with date and note are stored as immutable history. Status: Outstanding, Partially repaid, Fully repaid, Cancelled. Overpayment is rejected (in the app and by the security rules). Totals for money lent, borrowed, returned to me, repaid by me and outstanding, per currency. Search by name, lent/borrowed filter, active/closed lists, one due-date reminder per loan. Kept separate from expense reports |
+| Sound effects | Optional, off by default (Settings → Sound effects). Short bundled sounds after an expense is saved, a day is completed, a repayment is recorded or a loan is fully repaid. Played only after the write succeeded |
 | Calendar | Month grid with daily totals and tracking status (completed / confirmed no expenses / not reviewed). Tap a day to review it, add expenses or complete it |
 | Reminders | Daily reminder (default 22:00) with configurable follow-ups (default 22:45, 23:30), quiet hours, permission explanation before prompting. Reminders for a day are removed as soon as it is marked complete on any device |
 | Budgets | Monthly overall budget plus optional per-category budgets. Threshold alerts (default 80% and 100%), sent at most once per budget, threshold and month across all devices |
@@ -380,6 +383,9 @@ users/{uid}/categories/{id}              overrides for built-ins + custom catego
 users/{uid}/budgets/{overall|cat_<id>}   amountMinor, currency, categoryId?
 users/{uid}/budget_alerts/{yyyy-MM}_{budgetId}   highest threshold already notified
 users/{uid}/daily_status/{yyyy-MM-dd}    status: 'completed' | 'no_expenses'
+users/{uid}/loans/{id}                   direction:'lent'|'borrowed', personName, amountMinor, repaidMinor,
+                                         currency, date, dueDate?, note?, settled, cancelled?, createdAt, updatedAt
+users/{uid}/loans/{id}/repayments/{id}   amountMinor, date, note?, createdAt (immutable)
 users/{uid}/settings/preferences         currency, week start, format locale, reminders, alert thresholds
 users/{uid}/entitlements/premium         server-written only
 ```
@@ -397,6 +403,11 @@ users/{uid}/entitlements/premium         server-written only
 
 - Every collection is scoped to `users/{uid}`, and the rules check
   `request.auth.uid == uid` **and** `email_verified == true`.
+- Dates must be real calendar dates (`2025-02-31` and `2025-02-29` are
+  rejected, `2024-02-29` is accepted).
+- A loan repayment is accepted only in the same atomic write that raises the
+  loan's `repaidMinor` by exactly its amount, and `repaidMinor` can never
+  exceed the loan amount. Repayments cannot be edited.
 - Writes are schema-validated: allowed keys, types, ranges, `yyyy-MM-dd` dates,
   ISO currency codes, positive integer amounts, server timestamps, and a version
   that increases by one.
@@ -416,10 +427,15 @@ users/{uid}/entitlements/premium         server-written only
 ## Known limitations and remaining configuration
 
 **Requires your action**
-- **Firebase isn't configured in this repository.** `lib/firebase_options.dart` is a
-  placeholder. Run `flutterfire configure` and complete the
-  [Firebase setup](#firebase-setup). Until then, sign-in is unavailable. That is
-  intentional, so the app never fakes a login.
+- **Email branding and in-app links need console steps.** The subject, sender
+  name, message and action URL of Firebase emails can only be changed in the
+  Firebase Console. Follow
+  [docs/EMAIL_VERIFICATION_SETUP.md](docs/EMAIL_VERIFICATION_SETUP.md). Until
+  then, emails keep Firebase's default wording and links open Firebase's
+  default page.
+- **The web app isn't deployed to Hosting yet.** Run `flutter build web` and
+  then `firebase deploy --only hosting`. The App Links file
+  (`.well-known/assetlinks.json`) is served from there.
 - **App Check is off by default.** Turn it on with `--dart-define=APP_CHECK=true`
   after registering the providers.
 - **Release signing** (Android keystore, Apple certificates) isn't configured.
@@ -445,6 +461,8 @@ users/{uid}/entitlements/premium         server-written only
 - **Single reporting currency.** Expenses in other currencies are flagged and
   excluded from totals. There is no exchange-rate conversion: adding one needs
   a rate provider and stored historical rates per expense.
+- **Loan reminders** follow the main daily-reminder switch and time. There is
+  no separate switch.
 - **Search** covers merchant and note within the loaded history pages, because
   Firestore has no full-text search. Load more to search further back.
 - **Yearly reports** load that year's expenses, plus the previous year's for

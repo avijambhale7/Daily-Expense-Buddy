@@ -6,6 +6,7 @@ import '../../app/session/session_cubits.dart';
 import '../../core/dates/local_date.dart';
 import '../../core/logging/app_logger.dart';
 import '../../domain/models/daily_status.dart';
+import '../../domain/models/loan.dart';
 import '../../domain/models/user_preferences.dart';
 import '../../domain/repositories/repositories.dart';
 import '../../domain/services/reminder_planner.dart';
@@ -22,16 +23,22 @@ class ReminderCoordinator {
     required this._notifications,
     required this._preferences,
     required this._statuses,
+    this._loans,
     this._now = DateTime.now,
   });
 
   final NotificationService _notifications;
   final PreferencesCubit _preferences;
   final DailyStatusRepository _statuses;
+
+  /// Optional: open loans with a due date get one reminder on that day.
+  final LoanRepository? _loans;
   final DateTime Function() _now;
 
   StreamSubscription<PreferencesState>? _prefsSub;
   StreamSubscription<Map<LocalDate, StoredDayStatus>>? _statusSub;
+  StreamSubscription<List<Loan>>? _loanSub;
+  List<Loan> _openLoans = const [];
   AppLifecycleListener? _lifecycle;
   Timer? _debounce;
   LocalDate? _windowStart;
@@ -48,6 +55,16 @@ class ReminderCoordinator {
       }
     });
     _watchStatuses();
+    _loanSub = _loans?.watchAll().listen((all) {
+      final next = [
+        for (final l in all)
+          if (!l.settled && l.dueDate != null) l,
+      ];
+      if (!_sameDueDates(next, _openLoans)) {
+        _openLoans = next;
+        _schedule();
+      }
+    }, onError: (Object e) => AppLogger.warn('Reminders', 'Loans error', e));
     _lifecycle = AppLifecycleListener(
       onResume: () {
         if (_windowStart != LocalDate.today(_now)) _watchStatuses();
@@ -92,11 +109,18 @@ class ReminderCoordinator {
       return;
     }
     if (_disposed) return;
-    final plan = ReminderPlanner.plan(
-      now: _now(),
-      settings: settings,
-      completedDays: _completed,
-    );
+    final plan = [
+      ...ReminderPlanner.plan(
+        now: _now(),
+        settings: settings,
+        completedDays: _completed,
+      ),
+      ...ReminderPlanner.planLoanDue(
+        now: _now(),
+        settings: settings,
+        loans: _openLoans,
+      ),
+    ];
     await _notifications.syncReminders(plan);
   }
 
@@ -107,6 +131,22 @@ class ReminderCoordinator {
     _lifecycle?.dispose();
     await _prefsSub?.cancel();
     await _statusSub?.cancel();
+    await _loanSub?.cancel();
     await _notifications.cancelAllReminders();
+  }
+
+  /// Only due dates, names and directions affect the plan; ignore other
+  /// edits (e.g. a partial repayment) to avoid needless rescheduling.
+  static bool _sameDueDates(List<Loan> a, List<Loan> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id ||
+          a[i].dueDate != b[i].dueDate ||
+          a[i].personName != b[i].personName ||
+          a[i].direction != b[i].direction) {
+        return false;
+      }
+    }
+    return true;
   }
 }

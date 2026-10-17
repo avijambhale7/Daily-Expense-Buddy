@@ -2,6 +2,8 @@ import 'package:daily/core/dates/local_date.dart';
 import 'package:daily/core/errors/app_failure.dart';
 import 'package:daily/data/firebase/firestore_expense_repository.dart';
 import 'package:daily/data/firebase/firestore_repositories.dart';
+import 'package:daily/domain/models/loan.dart';
+import 'package:daily/data/firebase/firestore_loan_repository.dart';
 import 'package:daily/data/firebase/firestore_user_store.dart';
 import 'package:daily/data/firebase/write_tracker.dart';
 import 'package:daily/domain/models/daily_status.dart';
@@ -167,6 +169,37 @@ void main() {
           )
           .first;
       expect(cash.items.single.amountMinor, 300);
+
+      // Filtered queries honour the page limit on the server and keep the
+      // newest-first order, so "load more" works with filters too.
+      final firstFood = await repo
+          .watchHistory(const ExpenseFilter(categoryId: 'food'), limit: 1)
+          .first;
+      expect(firstFood.items.single.amountMinor, 500);
+      expect(firstFood.hasMore, isTrue);
+
+      // Category, payment method and date range combine.
+      final combined = await repo
+          .watchHistory(
+            ExpenseFilter(
+              categoryId: 'food',
+              range: DateRange(LocalDate(2025, 10, 2), LocalDate(2025, 10, 4)),
+            ),
+            limit: 10,
+          )
+          .first;
+      expect(combined.items.map((e) => e.amountMinor), [300]);
+      final none = await repo
+          .watchHistory(
+            const ExpenseFilter(
+              categoryId: 'transport',
+              paymentMethod: PaymentMethod.cash,
+            ),
+            limit: 10,
+          )
+          .first;
+      expect(none.items, isEmpty);
+      expect(none.hasMore, isFalse);
 
       expect(await repo.isCategoryUsed('transport'), isTrue);
       expect(await repo.isCategoryUsed('travel'), isFalse);
@@ -343,5 +376,87 @@ void main() {
         );
       },
     );
+  });
+
+  group('FirestoreLoanRepository', () {
+    FirestoreLoanRepository loansFor(String uid) =>
+        FirestoreLoanRepository(FirestoreUserStore(db, uid), tracker);
+
+    Loan loan(FirestoreLoanRepository repo, {int amount = 500000}) => Loan(
+      id: repo.newId(),
+      direction: LoanDirection.lent,
+      personName: 'Rahul',
+      amountMinor: amount,
+      currencyCode: 'INR',
+      date: LocalDate(2025, 10, 1),
+    );
+
+    LoanRepayment pay(FirestoreLoanRepository repo, Loan l, int amount) =>
+        LoanRepayment(
+          id: repo.newRepaymentId(l.id),
+          amountMinor: amount,
+          date: LocalDate(2025, 10, 5),
+        );
+
+    test(
+      'partial then full repayment keeps history and totals in step',
+      () async {
+        final repo = loansFor('alice');
+        var l = loan(repo);
+        await repo.create(l);
+
+        await repo.addRepayment(l, pay(repo, l, 200000));
+        l = (await repo.watchAll().first).single;
+        expect(l.repaidMinor, 200000);
+        expect(l.status, LoanStatus.partiallyRepaid);
+
+        await repo.addRepayment(l, pay(repo, l, 300000));
+        l = (await repo.watchAll().first).single;
+        expect(l.status, LoanStatus.fullyRepaid);
+        expect(l.settled, isTrue);
+
+        final history = await repo.watchRepayments(l.id).first;
+        expect(history.map((r) => r.amountMinor).toSet(), {200000, 300000});
+        expect(
+          history.fold<int>(0, (sum, r) => sum + r.amountMinor),
+          l.repaidMinor,
+        );
+      },
+    );
+
+    test('over-payments are refused before anything is written', () async {
+      final repo = loansFor('alice');
+      final l = loan(repo, amount: 1000);
+      await repo.create(l);
+      expect(
+        () => repo.addRepayment(l, pay(repo, l, 1001)),
+        throwsArgumentError,
+      );
+      expect(await repo.watchRepayments(l.id).first, isEmpty);
+      expect((await repo.watchAll().first).single.repaidMinor, 0);
+    });
+
+    test('deleting a loan removes its repayment history', () async {
+      final repo = loansFor('alice');
+      final l = loan(repo);
+      await repo.create(l);
+      await repo.addRepayment(l, pay(repo, l, 1000));
+      await repo.delete(l.id);
+      expect(await repo.watchAll().first, isEmpty);
+      final left = await db
+          .collection('users/alice/loans/${l.id}/repayments')
+          .get();
+      expect(left.docs, isEmpty);
+    });
+
+    test("one user's loans are never visible to another", () async {
+      final alice = loansFor('alice');
+      final bob = loansFor('bob');
+      final l = loan(alice);
+      await alice.create(l);
+      await alice.addRepayment(l, pay(alice, l, 1000));
+      expect(await bob.watchAll().first, isEmpty);
+      expect(await bob.watchRepayments(l.id).first, isEmpty);
+    });
   });
 }

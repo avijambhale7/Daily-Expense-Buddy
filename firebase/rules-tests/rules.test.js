@@ -17,6 +17,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 
 let env;
@@ -115,6 +116,15 @@ describe('expenses', () => {
     await assertFails(setDoc(doc(alice(), 'users/alice/expenses/bad'), missing));
   });
 
+  test('dates must exist on the calendar', async () => {
+    for (const date of ['2025-02-31', '2025-02-29', '2025-04-31', '2100-02-29']) {
+      await assertFails(setDoc(doc(alice(), `users/alice/expenses/d${date}`), expense({ date })), date);
+    }
+    for (const date of ['2024-02-29', '2000-02-29', '2025-01-31', '2025-04-30', '2025-12-31']) {
+      await assertSucceeds(setDoc(doc(alice(), `users/alice/expenses/d${date}`), expense({ date })), date);
+    }
+  });
+
   test('updates must increment the version (stale edits are rejected)', async () => {
     await seedExpense('e1', { version: 3 });
     const ref = doc(alice(), 'users/alice/expenses/e1');
@@ -209,6 +219,58 @@ describe('other collections', () => {
     await assertFails(setDoc(doc(bob(), 'users/alice/loans/l5'), loan));
     await assertFails(setDoc(doc(unverified(), 'users/alice/loans/l6'), loan));
     await assertSucceeds(deleteDoc(ref));
+  });
+
+  test('repayments must move the loan total by exactly their amount', async () => {
+    const loanRef = (db) => doc(db, 'users/alice/loans/l1');
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(loanRef(ctx.firestore()), {
+        direction: 'lent',
+        personName: 'Rahul',
+        amountMinor: 500000,
+        repaidMinor: 100000,
+        currency: 'INR',
+        date: '2025-10-14',
+        settled: false,
+        createdAt: new Date('2025-10-14T10:00:00Z'),
+        updatedAt: new Date('2025-10-14T10:00:00Z'),
+      });
+    });
+    const repayment = (amountMinor, extra = {}) => ({
+      amountMinor,
+      date: '2025-10-20',
+      note: null,
+      createdAt: serverTimestamp(),
+      ...extra,
+    });
+    const pay = (db, id, amount, newTotal, extra = {}, settled = false) => {
+      const b = writeBatch(db);
+      b.set(doc(db, `users/alice/loans/l1/repayments/${id}`), repayment(amount, extra));
+      b.update(loanRef(db), { repaidMinor: newTotal, settled, updatedAt: serverTimestamp() });
+      return b.commit();
+    };
+
+    await assertSucceeds(pay(alice(), 'r1', 200000, 300000));
+    await assertSucceeds(getDocs(collection(alice(), 'users/alice/loans/l1/repayments')));
+    // The total must rise by exactly the repayment.
+    await assertFails(pay(alice(), 'r2', 50000, 400000));
+    // A repayment on its own (loan total unchanged) is rejected.
+    await assertFails(setDoc(doc(alice(), 'users/alice/loans/l1/repayments/r3'), repayment(1000)));
+    // Overpaying is rejected (repaidMinor would exceed the amount).
+    await assertFails(pay(alice(), 'r4', 300000, 600000, {}, true));
+    // Invalid fields.
+    await assertFails(pay(alice(), 'r5', 0, 300000));
+    await assertFails(pay(alice(), 'r6', 1000, 301000, { date: '2025-02-30' }));
+    await assertFails(pay(alice(), 'r7', 1000, 301000, { extra: true }));
+    // History is immutable and private.
+    await assertFails(
+      updateDoc(doc(alice(), 'users/alice/loans/l1/repayments/r1'), { amountMinor: 1 }),
+    );
+    await assertFails(getDoc(doc(bob(), 'users/alice/loans/l1/repayments/r1')));
+    await assertFails(pay(bob(), 'r8', 1000, 301000));
+    // Paying the rest settles the loan.
+    await assertSucceeds(pay(alice(), 'r9', 200000, 500000, {}, true));
+    await assertSucceeds(deleteDoc(doc(alice(), 'users/alice/loans/l1/repayments/r1')));
   });
 
   test('preferences are validated', async () => {

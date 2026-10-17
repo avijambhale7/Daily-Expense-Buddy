@@ -1,4 +1,5 @@
 import '../../core/dates/local_date.dart';
+import '../../core/errors/app_failure.dart';
 import '../models/budget.dart';
 import '../models/daily_status.dart';
 import '../models/expense.dart';
@@ -26,6 +27,19 @@ abstract interface class AuthRepository {
   Future<void> signOut();
   Future<void> sendPasswordReset(String email);
   Future<void> sendEmailVerification();
+
+  /// Applies the one-time code from an email action link (email
+  /// verification or email recovery). Firebase validates the code; an
+  /// expired or used code fails with [FailureKind.expiredLink] or
+  /// [FailureKind.invalidLink].
+  Future<void> applyEmailActionCode(String code);
+
+  /// Checks a password-reset code and returns the account's email.
+  Future<String> verifyPasswordResetCode(String code);
+  Future<void> confirmPasswordReset({
+    required String code,
+    required String newPassword,
+  });
 
   /// Reloads the user and refreshes the ID token so new claims (e.g.
   /// `email_verified`) reach the security rules.
@@ -106,7 +120,17 @@ abstract interface class LoanRepository {
   Stream<List<Loan>> watchAll();
   Future<SaveOutcome> create(Loan loan);
   Future<SaveOutcome> update(Loan loan);
+
+  /// Deletes the loan and its repayment history.
   Future<SaveOutcome> delete(String id);
+
+  /// Repayment history of one loan, newest first.
+  Stream<List<LoanRepayment>> watchRepayments(String loanId);
+
+  /// Records [repayment] and the loan's new paid-back total in one atomic
+  /// write. Throws [ArgumentError] if it is more than is still owed.
+  Future<SaveOutcome> addRepayment(Loan loan, LoanRepayment repayment);
+  String newRepaymentId(String loanId);
 }
 
 abstract interface class DailyStatusRepository {

@@ -16,7 +16,7 @@ import '../../calendar/day_status_actions.dart';
 import '../../expenses/presentation/expense_editor.dart';
 
 /// Colourful full-width header for the phone home screen: greeting, a large
-/// progress ring for today, and the week / month / year totals.
+/// progress ring for today, and the week / month totals.
 class MobileHero extends StatelessWidget {
   const MobileHero({
     super.key,
@@ -151,8 +151,8 @@ class MobileHero extends StatelessWidget {
                     ),
                     const SizedBox(height: Space.xl),
                     ProgressRing(
-                      size: 196,
-                      strokeWidth: 14,
+                      size: 140,
+                      strokeWidth: 10,
                       value: ringValue,
                       color: onHero,
                       overColor: const Color(0xFFFFB4A9),
@@ -170,10 +170,11 @@ class MobileHero extends StatelessWidget {
                           _CountUp(
                             value: s.todayTotalMinor,
                             format: format,
-                            style: context.text.headlineLarge!.tabular.copyWith(
-                              color: onHero,
-                              fontWeight: FontWeight.w700,
-                            ),
+                            style: context.text.headlineMedium!.tabular
+                                .copyWith(
+                                  color: onHero,
+                                  fontWeight: FontWeight.w700,
+                                ),
                           ),
                           const SizedBox(height: 2),
                           Text(
@@ -200,12 +201,6 @@ class MobileHero extends StatelessWidget {
                           _HeroStat(
                             label: format.monthYear(s.today),
                             value: format.amount(s.monthTotalMinor),
-                            onHero: onHero,
-                          ),
-                          _Divider(color: onHero),
-                          _HeroStat(
-                            label: '${s.today.year} so far',
-                            value: format.amount(s.yearTotalMinor),
                             onHero: onHero,
                           ),
                         ],

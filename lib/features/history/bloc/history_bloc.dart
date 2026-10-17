@@ -31,14 +31,26 @@ class HistoryLoadMore extends HistoryEvent {
   const HistoryLoadMore();
 }
 
+/// Removes every filter and the search text (the sort order is kept).
+class HistoryFiltersCleared extends HistoryEvent {
+  const HistoryFiltersCleared();
+}
+
+/// Re-runs the current query after a failure.
+class HistoryRetried extends HistoryEvent {
+  const HistoryRetried();
+}
+
 class _HistoryPageReceived extends HistoryEvent {
-  const _HistoryPageReceived(this.page);
+  const _HistoryPageReceived(this.page, this.generation);
   final ExpensePage page;
+  final int generation;
 }
 
 class _HistoryFailed extends HistoryEvent {
-  const _HistoryFailed(this.message);
+  const _HistoryFailed(this.message, this.generation);
   final String message;
+  final int generation;
 }
 
 class HistoryState extends Equatable {
@@ -63,6 +75,13 @@ class HistoryState extends Equatable {
   final bool hasMore;
   final bool loadingMore;
   final String? error;
+
+  /// Number of active filters, counting a non-empty search as one.
+  int get activeFilterCount =>
+      (filter.range != null ? 1 : 0) +
+      (filter.categoryId != null ? 1 : 0) +
+      (filter.paymentMethod != null ? 1 : 0) +
+      (query.trim().isNotEmpty ? 1 : 0);
 
   /// Items matching the client-side text search.
   List<Expense> get visible => query.trim().isEmpty
@@ -121,6 +140,34 @@ class HistoryBloc extends Bloc<HistoryEvent, HistoryState> {
           limit: pageSize,
           status: LoadStatus.loading,
           items: const [],
+          hasMore: false,
+          loadingMore: false,
+          error: () => null,
+        ),
+      );
+      _listen(emit);
+    });
+    on<HistoryFiltersCleared>((_, emit) {
+      emit(
+        state.copyWith(
+          filter: ExpenseFilter(newestFirst: state.filter.newestFirst),
+          query: '',
+          limit: pageSize,
+          status: LoadStatus.loading,
+          items: const [],
+          hasMore: false,
+          loadingMore: false,
+          error: () => null,
+        ),
+      );
+      _listen(emit);
+    });
+    on<HistoryRetried>((_, emit) {
+      emit(
+        state.copyWith(
+          status: LoadStatus.loading,
+          loadingMore: false,
+          error: () => null,
         ),
       );
       _listen(emit);
@@ -133,8 +180,9 @@ class HistoryBloc extends Bloc<HistoryEvent, HistoryState> {
       emit(state.copyWith(limit: state.limit + pageSize, loadingMore: true));
       _listen(emit);
     });
-    on<_HistoryPageReceived>(
-      (event, emit) => emit(
+    on<_HistoryPageReceived>((event, emit) {
+      if (event.generation != _generation) return;
+      emit(
         state.copyWith(
           status: LoadStatus.ready,
           items: event.page.items,
@@ -142,17 +190,18 @@ class HistoryBloc extends Bloc<HistoryEvent, HistoryState> {
           loadingMore: false,
           error: () => null,
         ),
-      ),
-    );
-    on<_HistoryFailed>(
-      (event, emit) => emit(
+      );
+    });
+    on<_HistoryFailed>((event, emit) {
+      if (event.generation != _generation) return;
+      emit(
         state.copyWith(
           status: LoadStatus.failure,
           loadingMore: false,
           error: () => event.message,
         ),
-      ),
-    );
+      );
+    });
   }
 
   static const int pageSize = 30;
@@ -160,15 +209,21 @@ class HistoryBloc extends Bloc<HistoryEvent, HistoryState> {
   final ExpenseRepository _repository;
   StreamSubscription<ExpensePage>? _sub;
 
+  /// Incremented for every new query; results tagged with an older value
+  /// belong to a superseded filter or page size and are dropped.
+  int _generation = 0;
+
   void _listen(Emitter<HistoryState> emit) {
     unawaited(_sub?.cancel());
+    final generation = ++_generation;
     _sub = _repository
         .watchHistory(state.filter, limit: state.limit)
         .listen(
-          (page) => add(_HistoryPageReceived(page)),
+          (page) => add(_HistoryPageReceived(page, generation)),
           onError: (Object e) => add(
             _HistoryFailed(
               e is AppFailure ? e.message : AppFailure.unknown(e).message,
+              generation,
             ),
           ),
         );

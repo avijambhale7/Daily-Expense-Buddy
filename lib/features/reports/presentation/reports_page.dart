@@ -201,8 +201,14 @@ class _ReportsView extends StatelessWidget {
 /// Projected spending for the current week or month (picked from a
 /// dropdown): average per day so far × days in that period. Independent of
 /// the period shown above.
+/// Projected spending for the current week or month:
+/// (spent so far ÷ elapsed calendar days) × days in the period.
+/// Disabled while a past period is on screen, so a projection is never
+/// presented as a forecast for a period that has already ended.
 class _EstimateTile extends StatefulWidget {
-  const _EstimateTile();
+  const _EstimateTile({required this.viewingCurrent});
+
+  final bool viewingCurrent;
 
   @override
   State<_EstimateTile> createState() => _EstimateTileState();
@@ -242,23 +248,36 @@ class _EstimateTileState extends State<_EstimateTile> {
       child: DropdownButton<bool>(
         value: _week,
         isDense: true,
+        hint: const Text('This month'),
         borderRadius: BorderRadius.circular(Radii.md),
         style: context.text.labelLarge?.copyWith(color: context.colors.primary),
         iconEnabledColor: context.colors.primary,
         items: const [
-          DropdownMenuItem(value: false, child: Text('Month')),
-          DropdownMenuItem(value: true, child: Text('Week')),
+          DropdownMenuItem(value: true, child: Text('This week')),
+          DropdownMenuItem(value: false, child: Text('This month')),
         ],
-        onChanged: (v) => setState(() => _week = v ?? false),
+        onChanged: widget.viewingCurrent
+            ? (v) => setState(() => _week = v ?? false)
+            : null,
       ),
     );
+    const label = 'Estimated spending';
+    if (!widget.viewingCurrent) {
+      return const StatTile(
+        label: label,
+        value: '—',
+        caption: 'Projections are for the current week or month only.',
+        icon: Icons.trending_up_rounded,
+      );
+    }
     return StreamBuilder<List<Expense>>(
       stream: _stream,
       builder: (context, snap) {
         final list = snap.data;
         if (list == null) {
           return StatTile(
-            label: 'Estimate',
+            icon: Icons.trending_up_rounded,
+            label: label,
             value: '—',
             caption: snap.hasError ? 'Could not load' : 'Calculating…',
             action: picker,
@@ -271,11 +290,12 @@ class _EstimateTileState extends State<_EstimateTile> {
           currencyCode: prefs.currencyCode,
         );
         return StatTile(
-          label: 'Estimate',
+          icon: Icons.trending_up_rounded,
+          label: label,
           value: fmt.amount(e.estimatedMinor),
           caption:
-              '${fmt.amount(e.avgPerDayMinor)}/day × ${e.totalDays} days '
-              'this ${_week ? 'week' : 'month'}',
+              'Based on your average daily spending so far: '
+              '${fmt.amount(e.avgPerDayMinor)}/day × ${e.totalDays} days.',
           action: picker,
         );
       },
@@ -329,7 +349,7 @@ class _ReportBodyState extends State<_ReportBody> {
             : 'Over ${s.elapsedDays} day${s.elapsedDays == 1 ? '' : 's'}',
         icon: Icons.calendar_view_day_rounded,
       ),
-      const _EstimateTile(),
+      _EstimateTile(viewingCurrent: current),
       StatTile(
         label: 'Transactions',
         value: '${s.transactionCount}',
@@ -345,7 +365,17 @@ class _ReportBodyState extends State<_ReportBody> {
         return Wrap(
           spacing: Space.md,
           runSpacing: Space.md,
-          children: [for (final t in tiles) SizedBox(width: w, child: t)],
+          children: [
+            for (final t in tiles)
+              SizedBox(
+                // On phones the estimate's period picker needs the full
+                // row, and the tile after it fills its row too.
+                width: cols == 2 && (t is _EstimateTile || t == tiles.last)
+                    ? c.maxWidth
+                    : w,
+                child: t,
+              ),
+          ],
         );
       },
     );

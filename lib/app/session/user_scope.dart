@@ -138,6 +138,7 @@ class _UserScopeState extends State<UserScope> {
       notifications: deps.notifications,
       preferences: preferences,
       statuses: session.dailyStatus,
+      loans: session.loans,
       now: deps.now,
     )..start();
     final budgetAlerts = BudgetAlertCoordinator(

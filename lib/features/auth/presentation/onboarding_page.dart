@@ -27,10 +27,10 @@ class _Slide {
 
 const _slides = [
   _Slide(
-    title: 'Log expenses in seconds',
+    title: 'Every Expense, Under Control',
     text:
-        'Type an amount, tap a category, done. Your daily spending is '
-        'always one tap away.',
+        'Record daily spending in seconds and keep everything organized in '
+        'one simple place.',
     icon: Icons.add_card_rounded,
     orbit: [
       Icons.restaurant_rounded,
@@ -40,10 +40,10 @@ const _slides = [
     colors: [Color(0xFF2F6BFF), Color(0xFF1238B8)],
   ),
   _Slide(
-    title: 'See where your money goes',
+    title: 'See Where Your Money Goes',
     text:
-        'Clear charts for every day, week, month and year, plus budgets '
-        'that warn you before you overspend.',
+        'Explore daily, weekly, and monthly summaries to understand your '
+        'spending habits.',
     icon: Icons.insights_rounded,
     orbit: [
       Icons.pie_chart_rounded,
@@ -53,10 +53,10 @@ const _slides = [
     colors: [Color(0xFF8B5CF6), Color(0xFF5B21B6)],
   ),
   _Slide(
-    title: 'Build a daily habit',
+    title: 'Build a Better Money Habit',
     text:
-        'A gentle reminder each evening and a calendar that shows which '
-        'days are complete.',
+        'Use gentle reminders to stay consistent and complete your daily '
+        'expense tracking.',
     icon: Icons.notifications_active_rounded,
     orbit: [
       Icons.calendar_month_rounded,
@@ -66,10 +66,10 @@ const _slides = [
     colors: [Color(0xFF10B981), Color(0xFF047857)],
   ),
   _Slide(
-    title: 'Lend & borrow, stress-free',
+    title: 'Keep Lending and Borrowing Organized',
     text:
-        'Remember who owes you and whom you owe, with due dates and '
-        'repayments in one place.',
+        'Remember money you have lent to others and money you need to '
+        'repay.',
     icon: Icons.handshake_rounded,
     orbit: [
       Icons.south_west_rounded,
@@ -82,7 +82,11 @@ const _slides = [
 
 /// Intro slides shown once on a device to people who are not signed in.
 class OnboardingPage extends StatefulWidget {
-  const OnboardingPage({super.key});
+  const OnboardingPage({super.key, this.onDone});
+
+  /// Replay mode (from Settings): called instead of marking the intro as
+  /// seen, which it already is.
+  final VoidCallback? onDone;
 
   @override
   State<OnboardingPage> createState() => _OnboardingPageState();
@@ -122,7 +126,21 @@ class _OnboardingPageState extends State<OnboardingPage>
 
   bool get _isLast => _page.round() == _slides.length - 1;
 
-  void _finish() => context.read<OnboardingActions>().complete();
+  void _finish() {
+    final onDone = widget.onDone;
+    if (onDone != null) return onDone();
+    context.read<OnboardingActions>().complete();
+  }
+
+  bool get _isFirst => _page.round() == 0;
+
+  void _back() {
+    if (_isFirst) return;
+    _pages.previousPage(
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOutCubic,
+    );
+  }
 
   void _next() {
     if (_isLast) return _finish();
@@ -155,21 +173,33 @@ class _OnboardingPageState extends State<OnboardingPage>
           child: SafeArea(
             child: Column(
               children: [
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Padding(
-                    padding: const EdgeInsets.all(Space.sm),
-                    child: AnimatedOpacity(
-                      opacity: _isLast ? 0 : 1,
-                      duration: const Duration(milliseconds: 200),
-                      child: TextButton(
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white,
+                Padding(
+                  padding: const EdgeInsets.all(Space.sm),
+                  child: Row(
+                    children: [
+                      AnimatedOpacity(
+                        opacity: _isFirst ? 0 : 1,
+                        duration: const Duration(milliseconds: 200),
+                        child: IconButton(
+                          color: Colors.white,
+                          tooltip: 'Back',
+                          onPressed: _isFirst ? null : _back,
+                          icon: const Icon(Icons.arrow_back_rounded),
                         ),
-                        onPressed: _isLast ? null : _finish,
-                        child: const Text('Skip'),
                       ),
-                    ),
+                      const Spacer(),
+                      AnimatedOpacity(
+                        opacity: _isLast ? 0 : 1,
+                        duration: const Duration(milliseconds: 200),
+                        child: TextButton(
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: _isLast ? null : _finish,
+                          child: const Text('Skip'),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 Expanded(

@@ -42,8 +42,10 @@ class SilentSoundEffects implements SoundEffects {
 }
 
 class AudioSoundEffects implements SoundEffects {
+  /// Off until the user turns it on in Settings, so the app never surprises
+  /// anyone with audio. A saved choice is always kept.
   AudioSoundEffects(this._prefs)
-    : _enabled = ValueNotifier(_prefs.getBool(key) ?? true);
+    : _enabled = ValueNotifier(_prefs.getBool(key) ?? false);
 
   static const key = 'sound.effects';
 

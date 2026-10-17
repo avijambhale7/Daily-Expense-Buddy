@@ -7,6 +7,7 @@ import '../core/dates/local_date.dart';
 import '../core/widgets/common.dart';
 import '../features/auth/cubit/auth_cubit.dart';
 import '../features/auth/presentation/auth_pages.dart';
+import '../features/auth/presentation/email_action_page.dart';
 import '../features/auth/presentation/onboarding_page.dart';
 import '../features/auth/presentation/setup_pages.dart';
 import '../features/budgets/presentation/budgets_page.dart';
@@ -55,6 +56,9 @@ String? resolveRedirect({
 }) {
   final loc = matchedLocation;
   if (!firebaseReady) return loc == Routes.setup ? null : Routes.setup;
+  // Email links work signed in or out, verified or not, and skip the
+  // splash and intro so the result shows straight away.
+  if (loc == Routes.emailAction) return null;
 
   final isPublic = Routes.publicRoutes.contains(loc);
   // The animated splash stays up for a moment at launch, whatever the
@@ -135,6 +139,14 @@ GoRouter buildRouter({
       GoRoute(
         path: Routes.verifyEmail,
         builder: (_, _) => const VerifyEmailPage(),
+      ),
+      GoRoute(
+        path: Routes.emailAction,
+        builder: (_, state) => EmailActionPage(
+          key: ValueKey(state.uri.queryParameters['oobCode']),
+          mode: state.uri.queryParameters['mode'],
+          code: state.uri.queryParameters['oobCode'],
+        ),
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, shell) => AppShell(shell: shell),

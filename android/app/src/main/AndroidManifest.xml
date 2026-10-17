@@ -29,6 +29,19 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- App Links: links in Daily Expense Buddy emails open this app
+                 (verified through web/.well-known/assetlinks.json on the
+                 hosted site). Without the app they open in the browser. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https"/>
+                <data android:host="daily-expense-buddy-e0980.web.app"/>
+                <data android:host="daily-expense-buddy-e0980.firebaseapp.com"/>
+                <data android:path="/auth/action"/>
+                <data android:path="/verify-email"/>
+            </intent-filter>
         </activity>
         <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
         <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">

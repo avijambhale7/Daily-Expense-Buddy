@@ -31,10 +31,19 @@ service cloud.firestore {
       return request.resource.data;
     }
 
+    function daysInMonth(y, m) {
+      return m == 2
+        ? (((y % 4 == 0 && y % 100 != 0) || y % 400 == 0) ? 29 : 28)
+        : (m in [4, 6, 9, 11] ? 30 : 31);
+    }
+
+    // A real calendar date in YYYY-MM-DD form: 2025-02-31 and 2025-02-29
+    // are rejected, 2024-02-29 is accepted.
     function isDate(v) {
       return v is string
         && v.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$')
-        && v >= '2000-01-01';
+        && v >= '2000-01-01'
+        && int(v.split('-')[2]) <= daysInMonth(int(v.split('-')[0]), int(v.split('-')[1]));
     }
 
     function isCurrency(v) {
@@ -153,7 +162,7 @@ service cloud.firestore {
         function validLoan(d) {
           return d.keys().hasOnly(['direction', 'personName', 'amountMinor', 'repaidMinor',
                                    'currency', 'date', 'dueDate', 'note', 'settled',
-                                   'createdAt', 'updatedAt'])
+                                   'cancelled', 'createdAt', 'updatedAt'])
             && d.direction in ['lent', 'borrowed']
             && d.personName is string && d.personName.size() > 0 && d.personName.size() <= 60
             && isAmount(d.amountMinor)
@@ -163,6 +172,7 @@ service cloud.firestore {
             && (!('dueDate' in d) || d.dueDate == null || isDate(d.dueDate))
             && optString(d, 'note', 200)
             && d.settled is bool
+            && (!('cancelled' in d) || d.cancelled is bool)
             && d.updatedAt == request.time;
         }
         allow read: if isOwner(uid);
@@ -174,6 +184,30 @@ service cloud.firestore {
           && validLoan(data())
           && data().createdAt == resource.data.createdAt;
         allow delete: if isOwner(uid);
+
+        // Repayment history. A repayment is only accepted in the same
+        // atomic write that raises the loan's repaidMinor by exactly its
+        // amount (and the loan rule caps repaidMinor at the loan amount),
+        // so the history always adds up and can never overpay. Repayments
+        // are immutable; they are deleted together with their loan.
+        match /repayments/{repaymentId} {
+          function loanPath() {
+            return /databases/$(database)/documents/users/$(uid)/loans/$(loanId);
+          }
+          allow read: if isOwner(uid);
+          allow create: if isOwner(uid)
+            && repaymentId.size() <= 64
+            && data().keys().hasOnly(['amountMinor', 'date', 'note', 'createdAt'])
+            && isAmount(data().amountMinor)
+            && isDate(data().date)
+            && optString(data(), 'note', 200)
+            && data().createdAt == request.time
+            && exists(loanPath())
+            && getAfter(loanPath()).data.repaidMinor
+                 == get(loanPath()).data.repaidMinor + data().amountMinor;
+          allow update: if false;
+          allow delete: if isOwner(uid);
+        }
       }
 
       // ---------------------------------------------------------------
