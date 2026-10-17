@@ -34,7 +34,7 @@ class HistoryPage extends StatelessWidget {
           initialCategoryId == null
               ? const HistoryStarted()
               : HistoryFilterChanged(
-                  ExpenseFilter(categoryId: initialCategoryId),
+                  ExpenseFilter(categoryIds: {initialCategoryId!}),
                 ),
         ),
       child: const _HistoryView(),
@@ -387,11 +387,11 @@ class _Filters extends StatelessWidget {
     }
 
     Future<void> pickCategory() async {
-      final picked = await _showPicker<String>(
+      final picked = await _showMultiPicker<String>(
         context,
-        title: 'Filter by category',
-        allLabel: 'All categories',
-        selected: f.categoryId,
+        title: 'Categories',
+        subtitle: 'Show expenses in any of the selected categories.',
+        selected: f.categoryIds,
         options: [
           for (final c in categories.categories)
             _PickerOption(
@@ -400,16 +400,19 @@ class _Filters extends StatelessWidget {
               leading: CategoryAvatar(category: c, size: 36),
             ),
         ],
+        allowed: (sel) =>
+            f.copyWith(categoryIds: sel).combinations <=
+            ExpenseFilter.maxCombinations,
       );
-      if (picked != null) apply(f.copyWith(categoryId: () => picked.value));
+      if (picked != null) apply(f.copyWith(categoryIds: picked));
     }
 
     Future<void> pickPayment() async {
-      final picked = await _showPicker<PaymentMethod>(
+      final picked = await _showMultiPicker<PaymentMethod>(
         context,
-        title: 'Filter by payment method',
-        allLabel: 'Any payment method',
-        selected: f.paymentMethod,
+        title: 'Payment methods',
+        subtitle: 'Show expenses paid with any of the selected methods.',
+        selected: f.paymentMethods,
         options: [
           for (final m in PaymentMethod.values)
             _PickerOption(
@@ -418,8 +421,19 @@ class _Filters extends StatelessWidget {
               leading: const IconBadge(icon: Icons.payments_rounded, size: 36),
             ),
         ],
+        allowed: (sel) =>
+            f.copyWith(paymentMethods: sel).combinations <=
+            ExpenseFilter.maxCombinations,
       );
-      if (picked != null) apply(f.copyWith(paymentMethod: () => picked.value));
+      if (picked != null) apply(f.copyWith(paymentMethods: picked));
+    }
+
+    String setLabel<T>(Set<T> values, String all, String Function(T) name) {
+      if (values.isEmpty) return all;
+      final names = values.map(name).toList()..sort();
+      return names.length == 1
+          ? names.single
+          : '${names.first} +${names.length - 1}';
     }
 
     final active = state.activeFilterCount;
@@ -487,20 +501,26 @@ class _Filters extends StatelessWidget {
                 const SizedBox(width: Space.sm),
                 _FilterChip(
                   icon: Icons.category_rounded,
-                  label: f.categoryId == null
-                      ? 'All categories'
-                      : categories.resolve(f.categoryId!).name,
-                  active: f.categoryId != null,
+                  label: setLabel(
+                    f.categoryIds,
+                    'All categories',
+                    (id) => categories.resolve(id).name,
+                  ),
+                  active: f.categoryIds.isNotEmpty,
                   onTap: pickCategory,
-                  onClear: () => apply(f.copyWith(categoryId: () => null)),
+                  onClear: () => apply(f.copyWith(categoryIds: const {})),
                 ),
                 const SizedBox(width: Space.sm),
                 _FilterChip(
                   icon: Icons.payments_rounded,
-                  label: f.paymentMethod?.label ?? 'Any payment',
-                  active: f.paymentMethod != null,
+                  label: setLabel(
+                    f.paymentMethods,
+                    'Any payment',
+                    (m) => m.label,
+                  ),
+                  active: f.paymentMethods.isNotEmpty,
                   onTap: pickPayment,
-                  onClear: () => apply(f.copyWith(paymentMethod: () => null)),
+                  onClear: () => apply(f.copyWith(paymentMethods: const {})),
                 ),
                 const SizedBox(width: Space.sm),
                 ActionChip(
@@ -518,6 +538,41 @@ class _Filters extends StatelessWidget {
               ],
             ),
           ),
+          if (f.categoryIds.length + f.paymentMethods.length > 1)
+            Padding(
+              padding: const EdgeInsets.only(top: Space.sm),
+              child: Wrap(
+                spacing: Space.xs,
+                runSpacing: Space.xs,
+                children: [
+                  for (final id in f.categoryIds)
+                    InputChip(
+                      visualDensity: VisualDensity.compact,
+                      avatar: CategoryAvatar(
+                        category: categories.resolve(id),
+                        size: 22,
+                      ),
+                      label: Text(categories.resolve(id).name),
+                      deleteButtonTooltipMessage: 'Remove filter',
+                      onDeleted: () => apply(
+                        f.copyWith(categoryIds: {...f.categoryIds}..remove(id)),
+                      ),
+                    ),
+                  for (final m in f.paymentMethods)
+                    InputChip(
+                      visualDensity: VisualDensity.compact,
+                      avatar: const Icon(Icons.payments_rounded, size: 18),
+                      label: Text(m.label),
+                      deleteButtonTooltipMessage: 'Remove filter',
+                      onDeleted: () => apply(
+                        f.copyWith(
+                          paymentMethods: {...f.paymentMethods}..remove(m),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           if (state.query.isNotEmpty && state.hasMore)
             Padding(
               padding: const EdgeInsets.only(top: Space.sm),
@@ -569,67 +624,114 @@ class _PickerOption<T> {
   final Widget? leading;
 }
 
-/// Wraps the picked value so "All" (null) can be told apart from "dismissed".
-class _Picked<T> {
-  const _Picked(this.value);
-  final T? value;
-}
-
-Future<_Picked<T>?> _showPicker<T>(
+/// Multi-select sheet. Returns the new selection (empty = all), or null
+/// when dismissed. [allowed] rejects selections Firestore can't run.
+Future<Set<T>?> _showMultiPicker<T>(
   BuildContext context, {
   required String title,
-  required String allLabel,
-  required T? selected,
+  required String subtitle,
+  required Set<T> selected,
   required List<_PickerOption<T>> options,
+  required bool Function(Set<T>) allowed,
 }) {
-  return showModalBottomSheet<_Picked<T>>(
+  var picked = {...selected};
+  return showModalBottomSheet<Set<T>>(
     context: context,
     // Above the navigation bar, which is drawn over tab content.
     useRootNavigator: true,
     showDragHandle: true,
     isScrollControlled: true,
-    builder: (context) => SafeArea(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.75,
-        ),
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                Space.xl,
-                0,
-                Space.xl,
-                Space.sm,
-              ),
-              child: Text(title, style: context.text.titleMedium),
+    builder: (context) => StatefulBuilder(
+      builder: (context, setSheet) {
+        final ok = allowed(picked);
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.8,
             ),
-            ListTile(
-              leading: const IconBadge(
-                icon: Icons.select_all_rounded,
-                size: 36,
-              ),
-              title: Text(allLabel),
-              trailing: selected == null
-                  ? Icon(Icons.check_rounded, color: context.colors.primary)
-                  : null,
-              selected: selected == null,
-              onTap: () => Navigator.pop(context, _Picked<T>(null)),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    Space.xl,
+                    0,
+                    Space.xl,
+                    Space.sm,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: context.text.titleMedium),
+                      Text(subtitle, style: context.text.bodySmall),
+                    ],
+                  ),
+                ),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final o in options)
+                        CheckboxListTile(
+                          secondary: o.leading,
+                          title: Text(o.label),
+                          value: picked.contains(o.value),
+                          onChanged: (on) => setSheet(() {
+                            picked = {...picked};
+                            on == true
+                                ? picked.add(o.value)
+                                : picked.remove(o.value);
+                          }),
+                        ),
+                    ],
+                  ),
+                ),
+                if (!ok)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      Space.xl,
+                      Space.sm,
+                      Space.xl,
+                      0,
+                    ),
+                    child: Text(
+                      'Too many combinations with your other filters. '
+                      'Select fewer items.',
+                      style: context.text.bodySmall?.copyWith(
+                        color: context.colors.error,
+                      ),
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.all(Space.lg),
+                  child: Row(
+                    children: [
+                      TextButton(
+                        onPressed: picked.isEmpty
+                            ? null
+                            : () => setSheet(() => picked = {}),
+                        child: const Text('Clear'),
+                      ),
+                      const Spacer(),
+                      FilledButton(
+                        onPressed: ok
+                            ? () => Navigator.pop(context, picked)
+                            : null,
+                        child: Text(
+                          picked.isEmpty
+                              ? 'Show all'
+                              : 'Apply (${picked.length})',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            for (final o in options)
-              ListTile(
-                leading: o.leading,
-                title: Text(o.label),
-                trailing: o.value == selected
-                    ? Icon(Icons.check_rounded, color: context.colors.primary)
-                    : null,
-                selected: o.value == selected,
-                onTap: () => Navigator.pop(context, _Picked<T>(o.value)),
-              ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     ),
   );
 }

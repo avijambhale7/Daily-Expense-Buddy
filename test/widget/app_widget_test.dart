@@ -96,6 +96,46 @@ void main() {
       expect(find.text(r'$0.00'), findsWidgets);
     });
 
+    testWidgets('quick amounts add up and the description is saved', (
+      tester,
+    ) async {
+      final h = await createHarness();
+      await pumpApp(tester, h);
+      await tester.tap(
+        find.widgetWithText(FilledButton, 'Add Your First Expense').first,
+      );
+      await settle(tester);
+
+      await tester.tap(find.text(r'+$100'));
+      await tester.pump();
+      await tester.tap(find.text(r'+$50'));
+      await tester.pump();
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        '150.00',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextField, 'e.g. Lunch, Uber, Flipkart (optional)'),
+        'Lunch',
+      );
+      await tester.tap(find.text('Save expense'));
+      await settle(tester);
+      final docs = await h.db.collection('users/$testUid/expenses').get();
+      expect(docs.docs.single.data()['amountMinor'], 15000);
+      expect(docs.docs.single.data()['merchant'], 'Lunch');
+    });
+
+    testWidgets('the home header shows today without the budget ring', (
+      tester,
+    ) async {
+      final h = await createHarness();
+      await pumpApp(tester, h);
+      expect(find.text('Spent today'), findsOneWidget);
+      expect(find.text('No expenses recorded yet'), findsOneWidget);
+      expect(find.textContaining('over budget'), findsNothing);
+      expect(find.textContaining('left today'), findsNothing);
+    });
+
     testWidgets('adding an expense validates input and updates the dashboard', (
       tester,
     ) async {

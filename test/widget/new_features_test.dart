@@ -36,6 +36,8 @@ Future<void> _tap(WidgetTester tester, Finder finder) async {
   await settle(tester);
 }
 
+Finder _check(String label) => find.widgetWithText(CheckboxListTile, label);
+
 Finder _navItem(String label) =>
     find.descendant(of: find.byType(NavigationBar), matching: find.text(label));
 
@@ -80,23 +82,46 @@ void main() {
       expect(find.textContaining('Clear filters'), findsNothing);
       expect(find.text('Groceries'), findsWidgets);
 
-      // Pick a category from the sheet.
+      // Pick a category from the multi-select sheet.
       await _tap(tester, find.text('All categories'));
-      await _tap(tester, find.text('Food and Drinks').last);
+      await _tap(tester, _check('Food and Drinks'));
+      await _tap(tester, find.text('Apply (1)'));
       expect(find.text('Clear filters (1)'), findsOneWidget);
       expect(find.text('Groceries'), findsNothing);
       expect(find.textContaining('This view needs'), findsNothing);
 
-      // "All categories" in the sheet removes the filter again.
+      // Add a second category: both show, the third doesn't.
       await _tap(tester, find.text('Food and Drinks').first);
-      await _tap(tester, find.text('All categories').last);
-      expect(find.text('Groceries'), findsWidgets);
+      await _tap(tester, _check('Shopping'));
+      await _tap(tester, find.text('Apply (2)'));
+      expect(find.text('Clear filters (2)'), findsOneWidget);
+      expect(find.text('Shopping'), findsWidgets);
+      expect(find.text('Groceries'), findsNothing);
 
-      // Combine two filters, then clear them in one tap.
+      // Each selected value can be removed on its own.
+      await _tap(
+        tester,
+        find.descendant(
+          of: find.widgetWithText(InputChip, 'Food and Drinks'),
+          matching: find.byTooltip('Remove filter'),
+        ),
+      );
+      expect(find.text('Clear filters (1)'), findsOneWidget);
+
+      // "Clear" in the sheet goes back to all categories.
+      await _tap(tester, find.text('Shopping').first);
+      await _tap(tester, find.text('Clear'));
+      await _tap(tester, find.text('Show all'));
+      expect(find.text('Groceries'), findsWidgets);
+      expect(find.textContaining('Clear filters'), findsNothing);
+
+      // Combine category and payment filters, then clear them in one tap.
       await _tap(tester, find.text('All categories'));
-      await _tap(tester, find.text('Shopping').last);
+      await _tap(tester, _check('Shopping'));
+      await _tap(tester, find.text('Apply (1)'));
       await _tap(tester, find.text('Any payment'));
-      await _tap(tester, find.text('Card').last);
+      await _tap(tester, _check('Card'));
+      await _tap(tester, find.text('Apply (1)'));
       expect(find.text('Clear filters (2)'), findsOneWidget);
       // Search counts as a filter and is cleared with the rest.
       await tester.enterText(

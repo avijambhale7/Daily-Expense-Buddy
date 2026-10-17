@@ -8,6 +8,7 @@ import '../../../app/session/session_cubits.dart';
 import '../../../app/session/user_scope.dart';
 import '../../../core/dates/local_date.dart';
 import '../../../core/formatting/app_format.dart';
+import '../../../core/theme/category_visuals.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/design_tokens.dart';
@@ -258,6 +259,9 @@ class _DashboardContent extends StatelessWidget {
               ],
             ),
     );
+    final topCategories = s.monthCategories.isEmpty
+        ? null
+        : _TopCategoriesCard(summary: s, format: format);
     final extras = <Widget>[
       if (s.excludedOtherCurrencyCount > 0)
         InfoBanner(
@@ -302,9 +306,10 @@ class _DashboardContent extends StatelessWidget {
                 if (missed.isVisible) ...[gap, missed],
                 gap,
                 for (final e in extras) ...[e, gap],
-                weekChart,
-                gap,
                 recentCard,
+                gap,
+                weekChart,
+                if (topCategories != null) ...[gap, topCategories],
               ],
             ),
           ),
@@ -346,13 +351,104 @@ class _DashboardContent extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(child: weekChart),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      weekChart,
+                      if (topCategories != null) ...[gap, topCategories],
+                    ],
+                  ),
+                ),
                 gap,
                 Expanded(child: recentCard),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Where this month's money went: the biggest categories with their share.
+class _TopCategoriesCard extends StatelessWidget {
+  const _TopCategoriesCard({required this.summary, required this.format});
+
+  final DashboardSummary summary;
+  final AppFormat format;
+
+  @override
+  Widget build(BuildContext context) {
+    final categories = context.watch<CategoriesCubit>().state;
+    final top = summary.monthCategories.take(4).toList();
+    return SectionCard(
+      title: 'Top categories',
+      subtitle: format.monthYear(summary.today),
+      trailing: TextButton(
+        onPressed: () => context.go(Routes.reports),
+        child: const Text('Details'),
+      ),
+      child: Column(
+        children: [
+          for (final t in top) ...[
+            Builder(
+              builder: (context) {
+                final c = categories.resolve(t.categoryId);
+                final color = c.color(context);
+                final share = t.shareBasisPoints / 10000;
+                return MergeSemantics(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: Space.sm),
+                    child: Row(
+                      children: [
+                        CategoryAvatar(category: c, size: 36),
+                        const SizedBox(width: Space.md),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      c.name,
+                                      style: context.text.bodyMedium,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Text(
+                                    format.amount(t.totalMinor),
+                                    style: context.text.titleSmall!.tabular,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: Space.xs),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(Radii.pill),
+                                child: LinearProgressIndicator(
+                                  value: share.clamp(0, 1).toDouble(),
+                                  minHeight: 6,
+                                  color: color,
+                                  backgroundColor: color.withValues(
+                                    alpha: 0.15,
+                                  ),
+                                  semanticsLabel:
+                                      '${(share * 100).round()}% of this month',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ],
       ),
     );
   }

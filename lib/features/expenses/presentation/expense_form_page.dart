@@ -9,6 +9,7 @@ import '../../../app/session/session_cubits.dart';
 import '../../../app/session/user_scope.dart';
 import '../../../core/dates/local_date.dart';
 import '../../../core/formatting/app_format.dart';
+import '../../../core/money/money_parser.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/category_visuals.dart';
@@ -105,6 +106,33 @@ class _ExpenseFormBodyState extends State<_ExpenseFormBody> {
   }
 
   void _close() => Navigator.of(context).maybePop();
+
+  /// Adds [major] whole units to the typed amount (integer maths only).
+  void _quickAdd(ExpenseFormState s, int major) {
+    final currency = s.currency;
+    final factor = _pow10(currency.minorDigits);
+    final current = MoneyParser.parse(_amount.text, currency).minorUnits ?? 0;
+    final next = current + major * factor;
+    final whole = next ~/ factor;
+    final frac = next % factor;
+    final text = currency.minorDigits == 0
+        ? '$whole'
+        : '$whole.${frac.toString().padLeft(currency.minorDigits, '0')}';
+    _amount.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    context.read<ExpenseFormCubit>().amountChanged(text);
+    HapticFeedback.selectionClick();
+  }
+
+  static int _pow10(int n) {
+    var v = 1;
+    for (var i = 0; i < n; i++) {
+      v *= 10;
+    }
+    return v;
+  }
 
   Future<void> _pickDate(ExpenseFormState s) async {
     final today = LocalDate.today(context.read<AppDependencies>().now);
@@ -272,19 +300,26 @@ class _ExpenseFormBodyState extends State<_ExpenseFormBody> {
         Container(
           padding: const EdgeInsets.fromLTRB(
             Space.lg,
-            Space.md,
             Space.lg,
-            Space.sm,
+            Space.lg,
+            Space.md,
           ),
           decoration: BoxDecoration(
-            color: context.colors.primaryContainer.withValues(alpha: 0.55),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                context.colors.primaryContainer,
+                context.colors.primaryContainer.withValues(alpha: 0.55),
+              ],
+            ),
             borderRadius: BorderRadius.circular(Radii.xl),
           ),
           child: Column(
             children: [
               Text(
-                'How much? (${currency.code})',
-                style: context.text.labelLarge?.copyWith(
+                'How much did you spend?',
+                style: context.text.titleSmall?.copyWith(
                   color: context.colors.onPrimaryContainer,
                 ),
               ),
@@ -330,11 +365,57 @@ class _ExpenseFormBodyState extends State<_ExpenseFormBody> {
                   errorMaxLines: 2,
                 ),
               ),
+              const SizedBox(height: Space.sm),
+              // Quick amounts: tap to add to what is typed.
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: Space.sm,
+                runSpacing: Space.xs,
+                children: [
+                  for (final step in const [10, 50, 100, 500])
+                    ActionChip(
+                      label: Text('+${currency.symbol}$step'),
+                      tooltip: 'Add ${currency.symbol}$step',
+                      visualDensity: VisualDensity.compact,
+                      side: BorderSide(
+                        color: context.colors.onPrimaryContainer.withValues(
+                          alpha: 0.25,
+                        ),
+                      ),
+                      backgroundColor: context.colors.surface.withValues(
+                        alpha: 0.6,
+                      ),
+                      onPressed: s.isBusy ? null : () => _quickAdd(s, step),
+                    ),
+                ],
+              ),
             ],
           ),
         ),
         const SizedBox(height: Space.xl),
-        Text('Category', style: context.text.titleSmall),
+        _SectionLabel(icon: Icons.edit_note_rounded, text: 'What was it for?'),
+        const SizedBox(height: Space.sm),
+        TextField(
+          controller: _merchant,
+          enabled: !s.isBusy,
+          onChanged: cubit.merchantChanged,
+          maxLength: Expense.maxMerchantLength,
+          textCapitalization: TextCapitalization.words,
+          textInputAction: TextInputAction.done,
+          decoration: InputDecoration(
+            hintText: 'e.g. Lunch, Uber, Flipkart (optional)',
+            prefixIcon: const Icon(Icons.storefront_rounded),
+            errorText: v?.merchantError,
+            counterText: '',
+          ),
+        ),
+        const SizedBox(height: Space.xl),
+        _SectionLabel(
+          icon: Icons.category_rounded,
+          text: s.categoryId == null
+              ? 'Category'
+              : 'Category · ${categoriesState.resolve(s.categoryId!).name}',
+        ),
         const SizedBox(height: Space.sm),
         LayoutBuilder(
           builder: (context, constraints) {
@@ -368,7 +449,7 @@ class _ExpenseFormBodyState extends State<_ExpenseFormBody> {
             ),
           ),
         const SizedBox(height: Space.xl),
-        Text('Date', style: context.text.titleSmall),
+        const _SectionLabel(icon: Icons.event_rounded, text: 'Date'),
         const SizedBox(height: Space.sm),
         Wrap(
           spacing: Space.sm,
@@ -411,26 +492,19 @@ class _ExpenseFormBodyState extends State<_ExpenseFormBody> {
           child: ExpansionTile(
             tilePadding: EdgeInsets.zero,
             initiallyExpanded: _showDetails,
+            leading: const Icon(Icons.tune_rounded),
             title: Text('More details', style: context.text.titleSmall),
             subtitle: Text(
-              'Merchant, note and payment method (optional)',
+              s.paymentMethod == null && s.note.isEmpty
+                  ? 'Note and payment method (optional)'
+                  : [
+                      if (s.paymentMethod != null) s.paymentMethod!.label,
+                      if (s.note.isNotEmpty) 'Note added',
+                    ].join(' · '),
               style: context.text.bodySmall,
             ),
             childrenPadding: const EdgeInsets.only(bottom: Space.sm),
             children: [
-              TextField(
-                controller: _merchant,
-                enabled: !s.isBusy,
-                onChanged: cubit.merchantChanged,
-                maxLength: Expense.maxMerchantLength,
-                textCapitalization: TextCapitalization.words,
-                decoration: InputDecoration(
-                  labelText: 'Merchant or description',
-                  errorText: v?.merchantError,
-                  counterText: '',
-                ),
-              ),
-              const SizedBox(height: Space.md),
               TextField(
                 controller: _note,
                 enabled: !s.isBusy,
@@ -458,6 +532,7 @@ class _ExpenseFormBodyState extends State<_ExpenseFormBody> {
                   children: [
                     for (final m in PaymentMethod.values)
                       ChoiceChip(
+                        avatar: Icon(_paymentIcon(m), size: 18),
                         label: Text(m.label),
                         selected: s.paymentMethod == m,
                         onSelected: s.isBusy
@@ -528,6 +603,40 @@ class _ExpenseFormBodyState extends State<_ExpenseFormBody> {
         ),
         const Divider(height: 1),
         saveBar,
+      ],
+    );
+  }
+}
+
+IconData _paymentIcon(PaymentMethod m) => switch (m) {
+  PaymentMethod.cash => Icons.payments_rounded,
+  PaymentMethod.card => Icons.credit_card_rounded,
+  PaymentMethod.mobile => Icons.qr_code_2_rounded,
+  PaymentMethod.bankTransfer => Icons.account_balance_rounded,
+  PaymentMethod.wallet => Icons.account_balance_wallet_rounded,
+  PaymentMethod.other => Icons.more_horiz_rounded,
+};
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: context.colors.primary),
+        const SizedBox(width: Space.sm),
+        Expanded(
+          child: Text(
+            text,
+            style: context.text.titleSmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
       ],
     );
   }

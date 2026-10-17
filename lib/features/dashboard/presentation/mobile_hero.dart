@@ -9,14 +9,13 @@ import '../../../core/formatting/app_format.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/design_tokens.dart';
-import '../../../core/widgets/progress_ring.dart';
 import '../../../domain/models/daily_status.dart';
 import '../../../domain/models/report_summary.dart';
 import '../../calendar/day_status_actions.dart';
 import '../../expenses/presentation/expense_editor.dart';
 
-/// Colourful full-width header for the phone home screen: greeting, a large
-/// progress ring for today, and the week / month totals.
+/// Colourful full-width header for the phone home screen: greeting, today's
+/// spending in large type, and the week / month totals.
 class MobileHero extends StatelessWidget {
   const MobileHero({
     super.key,
@@ -42,28 +41,6 @@ class MobileHero extends StatelessWidget {
     final bottom = Color.lerp(top, Colors.black, dark ? 0.35 : 0.28)!;
     final onHero = dark ? c.onPrimaryContainer : Colors.white;
     final muted = onHero.withValues(alpha: 0.75);
-
-    final allowance = s.dailyAllowanceMinor;
-    final double ringValue;
-    final String ringLabel;
-    final String ringSemantics;
-    if (allowance != null) {
-      ringValue = allowance == 0
-          ? (s.todayTotalMinor > 0 ? 1.01 : 0)
-          : s.todayTotalMinor / allowance;
-      final left = allowance - s.todayTotalMinor;
-      ringLabel = left >= 0
-          ? '${format.amount(left)} left today'
-          : '${format.amount(-left)} over budget';
-      ringSemantics =
-          'Spent ${format.amount(s.todayTotalMinor)} today. $ringLabel.';
-    } else {
-      final total = s.weekElapsedDays == 0 ? 1 : s.weekElapsedDays;
-      ringValue = s.weekReviewedDays / total;
-      ringLabel = '${s.weekReviewedDays}/$total days tracked';
-      ringSemantics =
-          'Spent ${format.amount(s.todayTotalMinor)} today. $ringLabel this week.';
-    }
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       // White status-bar icons over the coloured header in both themes.
@@ -150,36 +127,39 @@ class MobileHero extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: Space.xl),
-                    ProgressRing(
-                      size: 140,
-                      strokeWidth: 10,
-                      value: ringValue,
-                      color: onHero,
-                      overColor: const Color(0xFFFFB4A9),
-                      trackColor: onHero.withValues(alpha: 0.18),
-                      semanticLabel: ringSemantics,
+                    Semantics(
+                      label:
+                          'Spent ${format.amount(s.todayTotalMinor)} today, '
+                          '${s.todayCount} expense${s.todayCount == 1 ? '' : 's'}',
+                      excludeSemantics: true,
                       child: Column(
-                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
                             'Spent today',
-                            style: context.text.labelLarge?.copyWith(
+                            style: context.text.titleSmall?.copyWith(
                               color: muted,
                             ),
                           ),
-                          _CountUp(
-                            value: s.todayTotalMinor,
-                            format: format,
-                            style: context.text.headlineMedium!.tabular
-                                .copyWith(
-                                  color: onHero,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                          const SizedBox(height: Space.xs),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: _CountUp(
+                              value: s.todayTotalMinor,
+                              format: format,
+                              style: context.text.displayMedium!.tabular
+                                  .copyWith(
+                                    color: onHero,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -1,
+                                  ),
+                            ),
                           ),
-                          const SizedBox(height: 2),
                           Text(
-                            ringLabel,
-                            style: context.text.labelMedium?.copyWith(
+                            s.todayCount == 0
+                                ? 'No expenses recorded yet'
+                                : '${s.todayCount} expense'
+                                      '${s.todayCount == 1 ? '' : 's'} today',
+                            style: context.text.bodyMedium?.copyWith(
                               color: muted,
                             ),
                           ),

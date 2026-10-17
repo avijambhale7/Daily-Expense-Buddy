@@ -59,9 +59,9 @@ void main() {
     await _settle();
     expect(bloc.state.items, hasLength(2));
 
-    bloc.add(const HistoryFilterChanged(ExpenseFilter(categoryId: 'food')));
+    bloc.add(const HistoryFilterChanged(ExpenseFilter(categoryIds: {'food'})));
     await _settle();
-    expect(repo.queries.last.filter.categoryId, 'food');
+    expect(repo.queries.last.filter.categoryIds, {'food'});
     expect(bloc.state.status, LoadStatus.loading);
     expect(bloc.state.items, isEmpty, reason: 'old results are not reused');
 
@@ -72,10 +72,10 @@ void main() {
   });
 
   test('removing a category goes back to the unfiltered query', () async {
-    bloc.add(const HistoryFilterChanged(ExpenseFilter(categoryId: 'food')));
+    bloc.add(const HistoryFilterChanged(ExpenseFilter(categoryIds: {'food'})));
     await _settle();
     bloc.add(
-      HistoryFilterChanged(bloc.state.filter.copyWith(categoryId: () => null)),
+      HistoryFilterChanged(bloc.state.filter.copyWith(categoryIds: const {})),
     );
     await _settle();
     expect(repo.queries.last.filter.hasFilters, isFalse);
@@ -85,7 +85,7 @@ void main() {
   test('a late answer from a superseded filter is ignored', () async {
     bloc.add(const HistoryStarted());
     await _settle();
-    bloc.add(const HistoryFilterChanged(ExpenseFilter(categoryId: 'food')));
+    bloc.add(const HistoryFilterChanged(ExpenseFilter(categoryIds: {'food'})));
     await _settle();
 
     // The first (unfiltered) query answers after the filter changed.
@@ -117,7 +117,7 @@ void main() {
       HistoryFilterChanged(
         ExpenseFilter(
           range: DateRange(LocalDate(2025, 10, 1), LocalDate(2025, 10, 31)),
-          categoryId: 'food',
+          categoryIds: {'food'},
         ),
       ),
     );
@@ -147,7 +147,7 @@ void main() {
   );
 
   test('search works together with filters', () async {
-    bloc.add(const HistoryFilterChanged(ExpenseFilter(categoryId: 'food')));
+    bloc.add(const HistoryFilterChanged(ExpenseFilter(categoryIds: {'food'})));
     await _settle();
     repo.last.add(
       ExpensePage([
@@ -166,8 +166,8 @@ void main() {
     bloc.add(
       HistoryFilterChanged(
         ExpenseFilter(
-          categoryId: 'food',
-          paymentMethod: PaymentMethod.cash,
+          categoryIds: {'food'},
+          paymentMethods: {PaymentMethod.cash},
           range: DateRange(LocalDate(2025, 10, 1), LocalDate(2025, 10, 31)),
           newestFirst: false,
         ),

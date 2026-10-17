@@ -9,37 +9,48 @@ import 'expense.dart';
 class ExpenseFilter extends Equatable {
   const ExpenseFilter({
     this.range,
-    this.categoryId,
-    this.paymentMethod,
+    this.categoryIds = const {},
+    this.paymentMethods = const {},
     this.newestFirst = true,
   });
 
+  /// Firestore allows at most this many value combinations
+  /// (categories × payment methods) in one query.
+  static const maxCombinations = 30;
+
   final DateRange? range;
-  final String? categoryId;
-  final PaymentMethod? paymentMethod;
+
+  /// Expenses in any of these categories; empty means all categories.
+  final Set<String> categoryIds;
+
+  /// Expenses paid with any of these methods; empty means any method.
+  final Set<PaymentMethod> paymentMethods;
   final bool newestFirst;
 
   bool get hasFilters =>
-      range != null || categoryId != null || paymentMethod != null;
+      range != null || categoryIds.isNotEmpty || paymentMethods.isNotEmpty;
+
+  /// Value combinations this filter sends to Firestore.
+  int get combinations =>
+      (categoryIds.isEmpty ? 1 : categoryIds.length) *
+      (paymentMethods.isEmpty ? 1 : paymentMethods.length);
 
   ExpenseFilter copyWith({
     DateRange? Function()? range,
-    String? Function()? categoryId,
-    PaymentMethod? Function()? paymentMethod,
+    Set<String>? categoryIds,
+    Set<PaymentMethod>? paymentMethods,
     bool? newestFirst,
   }) {
     return ExpenseFilter(
       range: range != null ? range() : this.range,
-      categoryId: categoryId != null ? categoryId() : this.categoryId,
-      paymentMethod: paymentMethod != null
-          ? paymentMethod()
-          : this.paymentMethod,
+      categoryIds: categoryIds ?? this.categoryIds,
+      paymentMethods: paymentMethods ?? this.paymentMethods,
       newestFirst: newestFirst ?? this.newestFirst,
     );
   }
 
   @override
-  List<Object?> get props => [range, categoryId, paymentMethod, newestFirst];
+  List<Object?> get props => [range, categoryIds, paymentMethods, newestFirst];
 }
 
 abstract final class ExpenseSearch {

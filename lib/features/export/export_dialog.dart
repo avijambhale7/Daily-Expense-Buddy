@@ -188,11 +188,11 @@ class _ExportDialogState extends State<_ExportDialog> {
                   ),
               ],
             ),
-            if (f.categoryId != null || f.paymentMethod != null) ...[
+            if (f.categoryIds.isNotEmpty || f.paymentMethods.isNotEmpty) ...[
               const SizedBox(height: Space.lg),
               Text(
                 'Filters applied: '
-                '${[if (f.categoryId != null) categories.resolve(f.categoryId!).name, if (f.paymentMethod != null) f.paymentMethod!.label].join(', ')}',
+                '${[for (final id in f.categoryIds) categories.resolve(id).name, for (final m in f.paymentMethods) m.label].join(', ')}',
                 style: context.text.bodySmall,
               ),
             ],

@@ -158,13 +158,16 @@ void main() {
       expect(oldest.items.single.date, LocalDate(2025, 10, 1));
 
       final transport = await repo
-          .watchHistory(const ExpenseFilter(categoryId: 'transport'), limit: 10)
+          .watchHistory(
+            const ExpenseFilter(categoryIds: {'transport'}),
+            limit: 10,
+          )
           .first;
       expect(transport.items.map((e) => e.amountMinor).toSet(), {200, 400});
 
       final cash = await repo
           .watchHistory(
-            const ExpenseFilter(paymentMethod: PaymentMethod.cash),
+            const ExpenseFilter(paymentMethods: {PaymentMethod.cash}),
             limit: 10,
           )
           .first;
@@ -173,7 +176,7 @@ void main() {
       // Filtered queries honour the page limit on the server and keep the
       // newest-first order, so "load more" works with filters too.
       final firstFood = await repo
-          .watchHistory(const ExpenseFilter(categoryId: 'food'), limit: 1)
+          .watchHistory(const ExpenseFilter(categoryIds: {'food'}), limit: 1)
           .first;
       expect(firstFood.items.single.amountMinor, 500);
       expect(firstFood.hasMore, isTrue);
@@ -182,7 +185,7 @@ void main() {
       final combined = await repo
           .watchHistory(
             ExpenseFilter(
-              categoryId: 'food',
+              categoryIds: {'food'},
               range: DateRange(LocalDate(2025, 10, 2), LocalDate(2025, 10, 4)),
             ),
             limit: 10,
@@ -192,14 +195,33 @@ void main() {
       final none = await repo
           .watchHistory(
             const ExpenseFilter(
-              categoryId: 'transport',
-              paymentMethod: PaymentMethod.cash,
+              categoryIds: {'transport'},
+              paymentMethods: {PaymentMethod.cash},
             ),
             limit: 10,
           )
           .first;
       expect(none.items, isEmpty);
       expect(none.hasMore, isFalse);
+
+      // Several categories and several payment methods at once.
+      final both = await repo
+          .watchHistory(
+            const ExpenseFilter(categoryIds: {'food', 'transport'}),
+            limit: 10,
+          )
+          .first;
+      expect(both.items, hasLength(5));
+      final multi = await repo
+          .watchHistory(
+            const ExpenseFilter(
+              categoryIds: {'food', 'transport'},
+              paymentMethods: {PaymentMethod.cash, PaymentMethod.card},
+            ),
+            limit: 10,
+          )
+          .first;
+      expect(multi.items.map((e) => e.amountMinor), [300]);
 
       expect(await repo.isCategoryUsed('transport'), isTrue);
       expect(await repo.isCategoryUsed('travel'), isFalse);

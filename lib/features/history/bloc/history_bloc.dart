@@ -76,11 +76,12 @@ class HistoryState extends Equatable {
   final bool loadingMore;
   final String? error;
 
-  /// Number of active filters, counting a non-empty search as one.
+  /// Number of active filters: each selected category and payment method,
+  /// the date range, and a non-empty search.
   int get activeFilterCount =>
       (filter.range != null ? 1 : 0) +
-      (filter.categoryId != null ? 1 : 0) +
-      (filter.paymentMethod != null ? 1 : 0) +
+      filter.categoryIds.length +
+      filter.paymentMethods.length +
       (query.trim().isNotEmpty ? 1 : 0);
 
   /// Items matching the client-side text search.

@@ -44,11 +44,19 @@ class FirestoreExpenseRepository implements ExpenseRepository {
   /// `firebase deploy --only firestore:indexes`).
   Query<Map<String, dynamic>> _query(ExpenseFilter filter) {
     Query<Map<String, dynamic>> q = _col;
-    if (filter.categoryId != null) {
-      q = q.where('categoryId', isEqualTo: filter.categoryId);
+    // Several categories and payment methods combine as "any of" each; the
+    // picker keeps categories × methods within Firestore's limit of 30.
+    final cats = filter.categoryIds.toList()..sort();
+    if (cats.length == 1) {
+      q = q.where('categoryId', isEqualTo: cats.single);
+    } else if (cats.isNotEmpty) {
+      q = q.where('categoryId', whereIn: cats);
     }
-    if (filter.paymentMethod != null) {
-      q = q.where('paymentMethod', isEqualTo: filter.paymentMethod!.key);
+    final methods = [for (final m in filter.paymentMethods) m.key]..sort();
+    if (methods.length == 1) {
+      q = q.where('paymentMethod', isEqualTo: methods.single);
+    } else if (methods.isNotEmpty) {
+      q = q.where('paymentMethod', whereIn: methods);
     }
     final range = filter.range;
     if (range != null) {
