@@ -1,7 +1,9 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../app/app_dependencies.dart';
+import '../../../app/routes.dart';
 import '../../../app/session/session_cubits.dart';
 import '../../../app/session/user_scope.dart';
 import '../../../core/dates/local_date.dart';
@@ -178,7 +180,17 @@ class _ReportsView extends StatelessWidget {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Reports')),
+      appBar: AppBar(
+        title: const Text('Reports'),
+        actions: [
+          TextButton.icon(
+            onPressed: () => context.go(Routes.advancedReports),
+            icon: const Icon(Icons.insights_rounded),
+            label: const Text('Advanced'),
+          ),
+          const SizedBox(width: Space.sm),
+        ],
+      ),
       body: ListView(
         padding: pad,
         children: [

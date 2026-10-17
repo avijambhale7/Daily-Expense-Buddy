@@ -14,6 +14,13 @@ abstract final class FileSaver {
     String mimeType = 'text/csv',
   }) => impl.saveText(fileName: fileName, content: content, mimeType: mimeType);
 
+  /// Same as [saveText] for binary files such as PDFs.
+  static Future<FileSaveResult> saveBytes({
+    required String fileName,
+    required List<int> bytes,
+    required String mimeType,
+  }) => impl.saveBytes(fileName: fileName, bytes: bytes, mimeType: mimeType);
+
   /// Restricts a file name to safe characters.
   static String sanitize(String name) {
     final cleaned = name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');

@@ -90,3 +90,14 @@ abstract final class MoneyParser {
     }
   }
 }
+
+/// [minor] as typed digits ("1500.00"), which [MoneyParser] reads back.
+String plainAmount(int minor, int digits) {
+  if (digits == 0) return '$minor';
+  var factor = 1;
+  for (var i = 0; i < digits; i++) {
+    factor *= 10;
+  }
+  final frac = (minor % factor).toString().padLeft(digits, '0');
+  return '${minor ~/ factor}.$frac';
+}

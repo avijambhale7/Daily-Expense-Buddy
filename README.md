@@ -373,6 +373,28 @@ domains.
 
 ---
 
+## Premium, payments and the admin console
+
+- **Admin:** `iamsurajdixit@gmail.com`, defined in `isAdmin()` in
+  `firestore.rules`. To add another admin, add the email there and run
+  `firebase deploy --only firestore:rules`. An admin who logs in sees the
+  Admin console (Requests, Users, Settings) instead of the expense app.
+- **Price and UPI:** set in Admin console → Settings (default ₹99/year,
+  3-day trial). The values are stored in `app_config/premium`, so changing
+  the price needs no app update.
+- **Free trial:** the user sends a request from the Premium screen. The
+  admin approves it, and premium runs for the trial length. Users may send
+  several requests; each one shows "Request #n from this user".
+- **Payment:** the user pays by UPI (the app opens a UPI app with the
+  amount filled in) and submits the UPI transaction ID. The admin checks the
+  bank app and approves, which adds 1 year on top of any time left.
+- **Ban / unban:** Admin console → Users. While banned, the rules deny all
+  of that user's data and the app shows "Account suspended".
+- **Premium features:** extra themes, advanced reports with PDF
+  statements, recurring expenses, savings goals, and app lock (PIN or
+  fingerprint, stored on the device only). The rules require an active
+  entitlement to create or change recurring expenses and goals.
+
 ## Data model and storage conventions
 
 ```
@@ -387,7 +409,12 @@ users/{uid}/loans/{id}                   direction:'lent'|'borrowed', personName
                                          currency, date, dueDate?, note?, settled, cancelled?, createdAt, updatedAt
 users/{uid}/loans/{id}/repayments/{id}   amountMinor, date, note?, createdAt (immutable)
 users/{uid}/settings/preferences         currency, week start, format locale, reminders, alert thresholds
-users/{uid}/entitlements/premium         server-written only
+users/{uid}/entitlements/premium         written only by an admin (or Admin SDK)
+users/{uid}/recurring/{id}               premium recurring templates
+users/{uid}/goals/{id}                   premium savings goals
+premium_requests/{id}                    trial / payment requests (owner creates, admin decides)
+bans/{uid}                               banned accounts (admin only)
+app_config/premium                       price, UPI ID, trial days (admin writes)
 ```
 
 - No daily-status document means **"not reviewed"**. A day without expenses is

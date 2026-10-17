@@ -10,8 +10,15 @@ import '../../domain/models/premium_entitlement.dart';
 import '../../domain/models/user_profile.dart';
 import '../../domain/models/user_preferences.dart';
 import '../../features/auth/cubit/auth_cubit.dart';
+import '../../core/widgets/common.dart';
+import '../../features/admin/presentation/admin_console.dart';
+import '../../features/app_lock/app_lock_gate.dart';
 import '../../features/budgets/budget_alert_coordinator.dart';
+import '../../features/membership/membership_cubit.dart';
+import '../../features/recurring/recurring_coordinator.dart';
+import '../../features/membership/presentation/suspended_page.dart';
 import '../../features/reminders/reminder_coordinator.dart';
+import '../../services/app_lock/app_lock.dart';
 import '../app_dependencies.dart';
 import 'session_cubits.dart';
 import 'user_session.dart';
@@ -55,6 +62,19 @@ class RequireSession extends StatelessWidget {
   }
 }
 
+/// Hosts a screen shown instead of the router (admin console, suspension
+/// notice): it needs its own navigator for dialogs and sheets.
+class _OwnNavigator extends StatelessWidget {
+  const _OwnNavigator(this.home);
+
+  final Widget home;
+
+  @override
+  Widget build(BuildContext context) => Navigator(
+    onGenerateRoute: (_) => MaterialPageRoute<void>(builder: (_) => home),
+  );
+}
+
 /// Creates a [UserSession] and its long-lived controllers when a verified
 /// user signs in, and tears everything down (including scheduled reminders
 /// and the device's cached data) when they sign out.
@@ -77,6 +97,9 @@ class _ActiveSession {
     required this.reminders,
     required this.budgetAlerts,
     required this.subscriptions,
+    required this.membership,
+    required this.recurring,
+    this.lock,
   });
 
   final UserSession session;
@@ -86,20 +109,29 @@ class _ActiveSession {
   final ReminderCoordinator reminders;
   final BudgetAlertCoordinator budgetAlerts;
   final List<StreamSubscription<Object?>> subscriptions;
+  final MembershipCubit membership;
+  final RecurringCoordinator recurring;
+
+  /// Device PIN lock; null when the platform has no lock store.
+  final AppLockController? lock;
 
   Future<void> close() async {
     // Start coordinator disposal first: their timers are cancelled
     // synchronously, before any await below.
     final remindersDone = reminders.dispose();
     final alertsDone = budgetAlerts.dispose();
+    final recurringDone = recurring.dispose();
     for (final s in subscriptions) {
       await s.cancel();
     }
     await remindersDone;
     await alertsDone;
+    await recurringDone;
     await preferences.close();
     await categories.close();
     await entitlement.close();
+    await membership.close();
+    lock?.dispose();
   }
 }
 
@@ -164,6 +196,21 @@ class _UserScopeState extends State<UserScope> {
       entitlement: entitlement,
       reminders: reminders,
       budgetAlerts: budgetAlerts,
+      membership: MembershipCubit(session.membership),
+      recurring: RecurringCoordinator(
+        templates: session.recurring,
+        expenses: session.expenses,
+        entitlement: entitlement.stream,
+        entitlementNow: () => entitlement.state,
+        now: deps.now,
+      )..start(),
+      lock: deps.appLock == null
+          ? null
+          : AppLockController(
+              deps.appLock!,
+              biometrics: deps.biometrics,
+              now: deps.now,
+            ),
       subscriptions: [
         entitlement.stream.listen(applyPremium),
         session.syncIssues.listen(
@@ -179,7 +226,11 @@ class _UserScopeState extends State<UserScope> {
     unawaited(() async {
       try {
         await active.close();
-        if (signedOut) await deps.clearLocalData?.call();
+        if (signedOut) {
+          await deps.clearLocalData?.call();
+          // The PIN belongs to the person who set it, not to the device.
+          await deps.appLock?.clear();
+        }
         AppLogger.info('Session', 'Session ended');
       } catch (e, st) {
         AppLogger.error('Session', 'Error while ending session', e, st);
@@ -204,14 +255,39 @@ class _UserScopeState extends State<UserScope> {
             providers: [
               RepositoryProvider.value(value: active.session),
               RepositoryProvider.value(value: active.reminders),
+              RepositoryProvider.value(value: AppLockHandle(active.lock)),
             ],
             child: MultiBlocProvider(
               providers: [
                 BlocProvider.value(value: active.preferences),
                 BlocProvider.value(value: active.categories),
                 BlocProvider.value(value: active.entitlement),
+                BlocProvider.value(value: active.membership),
               ],
-              child: SessionScope(session: active.session, child: widget.child),
+              child: SessionScope(
+                session: active.session,
+                child: BlocBuilder<MembershipCubit, MembershipState>(
+                  buildWhen: (p, c) =>
+                      p.adminChecked != c.adminChecked ||
+                      p.isAdmin != c.isAdmin ||
+                      (p.ban == null) != (c.ban == null),
+                  builder: (context, m) {
+                    // Banned accounts see only the suspension notice, admins
+                    // their own console; everyone else the normal app.
+                    if (m.ban != null) {
+                      return const _OwnNavigator(SuspendedPage());
+                    }
+                    if (!m.adminChecked) {
+                      return const _OwnNavigator(Scaffold(body: LoadingView()));
+                    }
+                    if (m.isAdmin) return const _OwnNavigator(AdminConsole());
+                    final lock = active.lock;
+                    return lock == null
+                        ? widget.child
+                        : AppLockGate(controller: lock, child: widget.child);
+                  },
+                ),
+              ),
             ),
           );
     return BlocListener<AuthCubit, AuthState>(

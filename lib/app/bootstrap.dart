@@ -13,6 +13,7 @@ import '../core/logging/app_logger.dart';
 import '../core/theme/theme_cubit.dart';
 import '../data/firebase/firebase_auth_repository.dart';
 import '../services/notifications/local_notification_service.dart';
+import '../services/app_lock/app_lock.dart';
 import '../services/sound/sound_effects.dart';
 import 'app.dart';
 import 'app_gate.dart';
@@ -67,6 +68,8 @@ Future<void> bootstrap() async {
     onboarding: SharedPreferencesOnboardingStore(prefs),
     splashDuration: const Duration(milliseconds: 1900),
     sounds: AudioSoundEffects(prefs),
+    appLock: SharedPreferencesAppLockStore(prefs),
+    biometrics: LocalBiometricAuth(),
     authRepository: firebase.isReady
         ? FirebaseAuthRepository(FirebaseAuth.instance)
         : null,

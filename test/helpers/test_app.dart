@@ -10,6 +10,7 @@ import 'package:daily/core/theme/theme_cubit.dart';
 import 'package:daily/data/firebase/firebase_auth_repository.dart';
 import 'package:daily/domain/models/expense.dart';
 import 'package:daily/domain/repositories/repositories.dart';
+import 'package:daily/services/app_lock/app_lock.dart';
 import 'package:daily/services/notifications/notification_service.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' show UserMetadata;
@@ -63,6 +64,8 @@ Future<TestHarness> createHarness({
   UserSession Function(UserSession base)? overrideSession,
   bool withOnboarding = false,
   AuthRepository Function(MockFirebaseAuth auth)? authFactory,
+  bool admin = false,
+  bool withAppLock = false,
 }) async {
   await initializeDateFormatting('en_US');
   SharedPreferences.setMockInitialValues(initialPrefs);
@@ -72,7 +75,11 @@ Future<TestHarness> createHarness({
     mockUser: testUser(verified: verified),
   );
   final db = FakeFirebaseFirestore();
-  final baseFactory = firestoreSessionFactory(db: db, locale: 'en_US');
+  final baseFactory = firestoreSessionFactory(
+    db: db,
+    locale: 'en_US',
+    checkAdmin: admin,
+  );
   final sounds = SilentSoundEffects();
   final deps = AppDependencies(
     sounds: sounds,
@@ -98,6 +105,7 @@ Future<TestHarness> createHarness({
     hasPendingWrites: () async => false,
     now: testNow,
     onboarding: withOnboarding ? SharedPreferencesOnboardingStore(prefs) : null,
+    appLock: withAppLock ? SharedPreferencesAppLockStore(prefs) : null,
   );
   return TestHarness(
     auth: auth,

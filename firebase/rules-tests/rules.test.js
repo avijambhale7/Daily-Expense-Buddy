@@ -314,3 +314,224 @@ describe('other collections', () => {
     await assertFails(setDoc(doc(alice(), 'public/x'), { a: 1 }));
   });
 });
+
+describe('membership, admin and bans', () => {
+  const ADMIN = 'iamsurajdixit@gmail.com';
+  const admin = () =>
+    env.authenticatedContext('admin', { email: ADMIN, email_verified: true }).firestore();
+  const unverifiedAdmin = () =>
+    env.authenticatedContext('admin', { email: ADMIN, email_verified: false }).firestore();
+  const carol = () =>
+    env.authenticatedContext('carol', { email: 'carol@x.com', email_verified: true }).firestore();
+  const trial = (extra = {}) => ({
+    uid: 'carol',
+    email: 'carol@x.com',
+    displayName: 'Carol',
+    type: 'trial',
+    status: 'pending',
+    createdAt: serverTimestamp(),
+    ...extra,
+  });
+  const entitlement = (extra = {}) => ({
+    active: true,
+    expiresAt: new Date(Date.now() + 3 * 86400000),
+    source: 'trial',
+    grantedBy: ADMIN,
+    updatedAt: serverTimestamp(),
+    ...extra,
+  });
+
+  test('only the verified admin email passes the admin probe', async () => {
+    await assertSucceeds(getDoc(doc(admin(), 'admin/probe')));
+    await assertFails(getDoc(doc(unverifiedAdmin(), 'admin/probe')));
+    await assertFails(getDoc(doc(carol(), 'admin/probe')));
+  });
+
+  test('users send any number of their own requests, but cannot decide them', async () => {
+    await assertSucceeds(setDoc(doc(carol(), 'premium_requests/a'), trial()));
+    await assertSucceeds(setDoc(doc(carol(), 'premium_requests/b'), trial()));
+    await assertSucceeds(
+      setDoc(
+        doc(carol(), 'premium_requests/c'),
+        trial({ type: 'payment', upiRef: '412345678901', amountPaise: 9900 }),
+      ),
+    );
+    await assertSucceeds(
+      getDocs(query(collection(carol(), 'premium_requests'), where('uid', '==', 'carol'))),
+    );
+    // Not for someone else, not pre-approved, payments need a reference.
+    await assertFails(setDoc(doc(carol(), 'premium_requests/d'), trial({ uid: 'alice' })));
+    await assertFails(setDoc(doc(carol(), 'premium_requests/e'), trial({ status: 'approved' })));
+    await assertFails(setDoc(doc(carol(), 'premium_requests/f'), trial({ email: 'x@y.com' })));
+    await assertFails(setDoc(doc(carol(), 'premium_requests/g'), trial({ type: 'payment' })));
+    await assertFails(
+      updateDoc(doc(carol(), 'premium_requests/a'), { status: 'approved' }),
+    );
+    // Other users can't read them; nobody can delete them.
+    await assertFails(getDoc(doc(bob(), 'premium_requests/a')));
+    await assertFails(getDocs(collection(carol(), 'premium_requests')));
+    await assertFails(deleteDoc(doc(admin(), 'premium_requests/a')));
+  });
+
+  test('admins list and decide requests', async () => {
+    await assertSucceeds(setDoc(doc(carol(), 'premium_requests/a'), trial()));
+    await assertSucceeds(getDocs(collection(admin(), 'premium_requests')));
+    await assertSucceeds(
+      updateDoc(doc(admin(), 'premium_requests/a'), {
+        status: 'approved',
+        decidedAt: serverTimestamp(),
+        decidedBy: ADMIN,
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(admin(), 'premium_requests/a'), {
+        type: 'payment',
+        decidedAt: serverTimestamp(),
+        decidedBy: ADMIN,
+      }),
+    );
+  });
+
+  test('premium can only be granted by an admin, within limits', async () => {
+    const ref = (db) => doc(db, 'users/carol/entitlements/premium');
+    await assertFails(setDoc(ref(carol()), entitlement({ grantedBy: 'carol@x.com' })));
+    await assertSucceeds(setDoc(ref(admin()), entitlement()));
+    await assertSucceeds(getDoc(ref(carol())));
+    await assertSucceeds(getDoc(ref(admin())));
+    await assertFails(setDoc(ref(admin()), entitlement({ source: 'free' })));
+    await assertFails(
+      setDoc(ref(admin()), entitlement({ expiresAt: new Date(Date.now() + 1000 * 86400000) })),
+    );
+    await assertFails(setDoc(ref(admin()), entitlement({ grantedBy: 'someone@else.com' })));
+    // Admins see profiles but never expenses.
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'users/carol'), { displayName: 'Carol', email: 'carol@x.com' });
+      await setDoc(doc(ctx.firestore(), 'users/carol/expenses/e1'), { amountMinor: 1 });
+    });
+    await assertSucceeds(getDocs(collection(admin(), 'users')));
+    await assertFails(getDoc(doc(admin(), 'users/carol/expenses/e1')));
+    await assertFails(getDocs(collection(carol(), 'users')));
+  });
+
+  test('banned users lose access until unbanned', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'users/carol/expenses/e1'), { amountMinor: 1 });
+    });
+    await assertSucceeds(getDoc(doc(carol(), 'users/carol/expenses/e1')));
+    await assertFails(
+      setDoc(doc(carol(), 'bans/carol'), { bannedAt: serverTimestamp(), bannedBy: 'carol@x.com' }),
+    );
+    await assertSucceeds(
+      setDoc(doc(admin(), 'bans/carol'), {
+        reason: 'Spam',
+        bannedAt: serverTimestamp(),
+        bannedBy: ADMIN,
+      }),
+    );
+    await assertFails(getDoc(doc(carol(), 'users/carol/expenses/e1')));
+    await assertFails(setDoc(doc(carol(), 'premium_requests/x'), trial()));
+    await assertSucceeds(getDoc(doc(carol(), 'bans/carol')));
+    await assertFails(getDoc(doc(bob(), 'bans/carol')));
+    await assertSucceeds(deleteDoc(doc(admin(), 'bans/carol')));
+    await assertSucceeds(getDoc(doc(carol(), 'users/carol/expenses/e1')));
+  });
+
+  test('premium settings: everyone reads, only admins write', async () => {
+    const cfg = {
+      pricePaise: 9900,
+      upiId: 'buddy@okaxis',
+      payeeName: 'Buddy',
+      trialDays: 3,
+      updatedAt: serverTimestamp(),
+    };
+    await assertFails(setDoc(doc(carol(), 'app_config/premium'), cfg));
+    await assertSucceeds(setDoc(doc(admin(), 'app_config/premium'), cfg));
+    await assertSucceeds(getDoc(doc(carol(), 'app_config/premium')));
+    await assertFails(setDoc(doc(admin(), 'app_config/premium'), { ...cfg, trialDays: 90 }));
+    await assertFails(setDoc(doc(admin(), 'app_config/premium'), { ...cfg, pricePaise: 0 }));
+  });
+
+  test('profiles can store only the account’s own email', async () => {
+    const p = { displayName: 'Carol', createdAt: serverTimestamp(), schemaVersion: 1 };
+    await assertFails(setDoc(doc(carol(), 'users/carol'), { ...p, email: 'other@x.com' }));
+    await assertSucceeds(setDoc(doc(carol(), 'users/carol'), { ...p, email: 'carol@x.com' }));
+    await assertFails(updateDoc(doc(carol(), 'users/carol'), { email: 'other@x.com' }));
+  });
+});
+
+describe('premium features', () => {
+  const grantPremium = async (uid, daysFromNow) => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), `users/${uid}/entitlements/premium`), {
+        active: true,
+        expiresAt: new Date(Date.now() + daysFromNow * 86400000),
+        source: 'trial',
+      });
+    });
+  };
+  const recurring = (extra = {}) => ({
+    amountMinor: 1500000,
+    currency: 'INR',
+    categoryId: 'accommodation',
+    frequency: 'monthly',
+    startDate: '2026-10-01',
+    merchant: 'Rent',
+    note: null,
+    paymentMethod: 'bank_transfer',
+    lastPostedDate: null,
+    active: true,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    ...extra,
+  });
+  const goal = (extra = {}) => ({
+    name: 'Goa trip',
+    targetMinor: 1000000,
+    savedMinor: 0,
+    currency: 'INR',
+    targetDate: '2026-12-31',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    ...extra,
+  });
+
+  test('free users cannot create premium items', async () => {
+    await assertFails(setDoc(doc(alice(), 'users/alice/recurring/r1'), recurring()));
+    await assertFails(setDoc(doc(alice(), 'users/alice/goals/g1'), goal()));
+  });
+
+  test('expired premium is not premium', async () => {
+    await grantPremium('alice', -1);
+    await assertFails(setDoc(doc(alice(), 'users/alice/goals/g1'), goal()));
+  });
+
+  test('premium users manage recurring expenses and goals', async () => {
+    await grantPremium('alice', 3);
+    await assertSucceeds(setDoc(doc(alice(), 'users/alice/recurring/r1'), recurring()));
+    await assertSucceeds(
+      updateDoc(doc(alice(), 'users/alice/recurring/r1'), {
+        lastPostedDate: '2026-10-01',
+        updatedAt: serverTimestamp(),
+      }),
+    );
+    await assertFails(setDoc(doc(alice(), 'users/alice/recurring/r2'), recurring({ frequency: 'daily' })));
+    await assertFails(setDoc(doc(alice(), 'users/alice/recurring/r3'), recurring({ startDate: '2026-02-30' })));
+    await assertSucceeds(setDoc(doc(alice(), 'users/alice/goals/g1'), goal()));
+    await assertSucceeds(
+      updateDoc(doc(alice(), 'users/alice/goals/g1'), { savedMinor: 50000, updatedAt: serverTimestamp() }),
+    );
+    await assertFails(
+      updateDoc(doc(alice(), 'users/alice/goals/g1'), { savedMinor: -1, updatedAt: serverTimestamp() }),
+    );
+    await assertFails(getDoc(doc(bob(), 'users/alice/goals/g1')));
+  });
+
+  test('items stay readable and deletable after premium ends', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'users/alice/goals/g1'), { name: 'Old' });
+    });
+    await assertSucceeds(getDoc(doc(alice(), 'users/alice/goals/g1')));
+    await assertFails(updateDoc(doc(alice(), 'users/alice/goals/g1'), { name: 'New' }));
+    await assertSucceeds(deleteDoc(doc(alice(), 'users/alice/goals/g1')));
+  });
+});

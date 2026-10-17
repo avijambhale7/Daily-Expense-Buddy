@@ -21,10 +21,26 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function verified() {
+      return signedIn() && request.auth.token.email_verified == true;
+    }
+
+    // Admins are identified by their verified sign-in email. To add one,
+    // add the email here and deploy the rules.
+    function isAdmin() {
+      return verified()
+        && request.auth.token.email in ['iamsurajdixit@gmail.com'];
+    }
+
+    function notBanned(uid) {
+      return !exists(/databases/$(database)/documents/bans/$(uid));
+    }
+
+    // A banned account loses access to all of its data until unbanned.
     function isOwner(uid) {
-      return signedIn()
+      return verified()
         && request.auth.uid == uid
-        && request.auth.token.email_verified == true;
+        && notBanned(uid);
     }
 
     function data() {
@@ -63,17 +79,25 @@ service cloud.firestore {
       return v is int && v > 0 && v <= 1000000000000000;
     }
 
+    function ownEmail(d) {
+      return !('email' in d) || d.email == request.auth.token.email;
+    }
+
     match /users/{uid} {
-      allow get: if isOwner(uid);
-      allow list: if false;
+      // Admins see profiles (name, email, join date) but never the
+      // expenses or other data below them.
+      allow get: if isOwner(uid) || isAdmin();
+      allow list: if isAdmin();
       allow create: if isOwner(uid)
-        && data().keys().hasOnly(['displayName', 'createdAt', 'schemaVersion'])
+        && data().keys().hasOnly(['displayName', 'email', 'createdAt', 'schemaVersion'])
         && data().displayName is string && data().displayName.size() <= 50
+        && ownEmail(data())
         && data().createdAt == request.time
         && data().schemaVersion is int;
       allow update: if isOwner(uid)
-        && data().diff(resource.data).affectedKeys().hasOnly(['displayName'])
-        && data().displayName is string && data().displayName.size() <= 50;
+        && data().diff(resource.data).affectedKeys().hasOnly(['displayName', 'email'])
+        && data().displayName is string && data().displayName.size() <= 50
+        && ownEmail(data());
       allow delete: if isOwner(uid);
 
       // ---------------------------------------------------------------
@@ -211,6 +235,68 @@ service cloud.firestore {
       }
 
       // ---------------------------------------------------------------
+      // Premium features: creating or changing them needs an active
+      // entitlement (granted only by an admin). Reading and deleting stay
+      // possible after premium ends, so nothing is ever locked away.
+      function premiumActive() {
+        let ent = /databases/$(database)/documents/users/$(uid)/entitlements/premium;
+        return exists(ent)
+          && get(ent).data.active == true
+          && get(ent).data.expiresAt > request.time;
+      }
+
+      match /recurring/{id} {
+        function validRecurring(d) {
+          return d.keys().hasOnly(['amountMinor', 'currency', 'categoryId', 'frequency',
+                                   'startDate', 'merchant', 'note', 'paymentMethod',
+                                   'lastPostedDate', 'active', 'createdAt', 'updatedAt'])
+            && isAmount(d.amountMinor)
+            && isCurrency(d.currency)
+            && d.categoryId is string && d.categoryId.size() > 0 && d.categoryId.size() <= 64
+            && d.frequency in ['weekly', 'monthly', 'yearly']
+            && isDate(d.startDate)
+            && optString(d, 'merchant', 80)
+            && optString(d, 'note', 200)
+            && (!('paymentMethod' in d) || d.paymentMethod == null
+                || d.paymentMethod in ['cash', 'card', 'mobile', 'bank_transfer', 'wallet', 'other'])
+            && (!('lastPostedDate' in d) || d.lastPostedDate == null || isDate(d.lastPostedDate))
+            && d.active is bool
+            && d.updatedAt == request.time;
+        }
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid) && premiumActive()
+          && id.size() <= 64
+          && validRecurring(data())
+          && data().createdAt == request.time;
+        allow update: if isOwner(uid) && premiumActive()
+          && validRecurring(data())
+          && data().createdAt == resource.data.createdAt;
+        allow delete: if isOwner(uid);
+      }
+
+      match /goals/{id} {
+        function validGoal(d) {
+          return d.keys().hasOnly(['name', 'targetMinor', 'savedMinor', 'currency',
+                                   'targetDate', 'createdAt', 'updatedAt'])
+            && d.name is string && d.name.size() > 0 && d.name.size() <= 60
+            && isAmount(d.targetMinor)
+            && d.savedMinor is int && d.savedMinor >= 0 && d.savedMinor <= 1000000000000000
+            && isCurrency(d.currency)
+            && (!('targetDate' in d) || d.targetDate == null || isDate(d.targetDate))
+            && d.updatedAt == request.time;
+        }
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid) && premiumActive()
+          && id.size() <= 64
+          && validGoal(data())
+          && data().createdAt == request.time;
+        allow update: if isOwner(uid) && premiumActive()
+          && validGoal(data())
+          && data().createdAt == resource.data.createdAt;
+        allow delete: if isOwner(uid);
+      }
+
+      // ---------------------------------------------------------------
       match /daily_status/{day} {
         allow read: if isOwner(uid);
         allow create, update: if isOwner(uid)
@@ -253,11 +339,84 @@ service cloud.firestore {
       // ---------------------------------------------------------------
       // Written only by a trusted backend (e.g. a purchase-verification
       // Cloud Function using the Admin SDK).
+      // Premium is granted only by an admin (after approving a trial or a
+      // verified UPI payment) or a trusted backend using the Admin SDK.
       match /entitlements/{docId} {
-        allow read: if isOwner(uid);
-        allow delete: if isOwner(uid);
-        allow create, update: if false;
+        allow read: if isOwner(uid) || isAdmin();
+        allow delete: if isOwner(uid) || isAdmin();
+        allow create, update: if isAdmin()
+          && docId == 'premium'
+          && data().keys().hasOnly(['active', 'expiresAt', 'source', 'grantedBy',
+                                    'pricePaise', 'updatedAt'])
+          && data().active is bool
+          && data().expiresAt is timestamp
+          && data().expiresAt <= request.time + duration.value(800, 'd')
+          && data().source in ['trial', 'upi', 'manual']
+          && data().grantedBy == request.auth.token.email
+          && (!('pricePaise' in data()) || (data().pricePaise is int && data().pricePaise >= 0))
+          && data().updatedAt == request.time;
       }
+    }
+  
+    // ---------------------------------------------------------------
+    // Membership: bans, premium settings and premium requests.
+
+    match /admin/probe {
+      // The app reads this to find out whether the account is an admin.
+      allow get: if isAdmin();
+    }
+
+    match /bans/{uid} {
+      allow get: if (signedIn() && request.auth.uid == uid) || isAdmin();
+      allow list, delete: if isAdmin();
+      allow create, update: if isAdmin()
+        && data().keys().hasOnly(['reason', 'bannedAt', 'bannedBy'])
+        && optString(data(), 'reason', 300)
+        && data().bannedAt == request.time
+        && data().bannedBy == request.auth.token.email;
+    }
+
+    match /app_config/premium {
+      allow get: if verified();
+      allow create, update: if isAdmin()
+        && data().keys().hasOnly(['pricePaise', 'upiId', 'payeeName', 'trialDays', 'updatedAt'])
+        && data().pricePaise is int && data().pricePaise >= 100 && data().pricePaise <= 10000000
+        && data().upiId is string && data().upiId.size() <= 100
+        && data().payeeName is string && data().payeeName.size() <= 60
+        && data().trialDays is int && data().trialDays >= 1 && data().trialDays <= 30
+        && data().updatedAt == request.time;
+    }
+
+    // A user may send any number of requests; admins see how many each
+    // user has sent. Users can never approve their own.
+    match /premium_requests/{requestId} {
+      allow get: if isAdmin() || (verified() && resource.data.uid == request.auth.uid);
+      allow list: if isAdmin() || (verified() && resource.data.uid == request.auth.uid);
+      allow create: if isOwner(request.auth.uid)
+        && data().keys().hasOnly(['uid', 'email', 'displayName', 'type', 'status',
+                                  'message', 'upiRef', 'amountPaise', 'createdAt'])
+        && data().uid == request.auth.uid
+        && data().email == request.auth.token.email
+        && data().displayName is string && data().displayName.size() <= 50
+        && data().status == 'pending'
+        && data().createdAt == request.time
+        && optString(data(), 'message', 300)
+        && (
+          (data().type == 'trial'
+            && !('upiRef' in data()) && !('amountPaise' in data()))
+          || (data().type == 'payment'
+            && data().upiRef is string
+            && data().upiRef.size() >= 6 && data().upiRef.size() <= 40
+            && data().amountPaise is int && data().amountPaise > 0)
+        );
+      allow update: if isAdmin()
+        && data().diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'decidedAt', 'decidedBy', 'adminNote'])
+        && data().status in ['approved', 'rejected']
+        && data().decidedAt == request.time
+        && data().decidedBy == request.auth.token.email
+        && optString(data(), 'adminNote', 300);
+      allow delete: if false;
     }
   }
 }

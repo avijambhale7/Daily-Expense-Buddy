@@ -262,6 +262,10 @@ void main() {
             entitlements: base.entitlements,
             userData: base.userData,
             syncIssues: base.syncIssues,
+            membership: base.membership,
+            admin: base.admin,
+            recurring: base.recurring,
+            goals: base.goals,
           ),
         );
         await pumpApp(tester, h);

@@ -1,5 +1,6 @@
 import '../core/theme/theme_cubit.dart';
 import '../domain/repositories/repositories.dart';
+import '../services/app_lock/app_lock.dart';
 import '../services/notifications/notification_service.dart';
 import '../services/sound/sound_effects.dart';
 import 'app_gate.dart';
@@ -22,6 +23,8 @@ class AppDependencies {
     this.onboarding,
     this.splashDuration = Duration.zero,
     this.sounds,
+    this.appLock,
+    this.biometrics,
   });
 
   final FirebaseSetupResult firebase;
@@ -54,4 +57,10 @@ class AppDependencies {
   final SoundEffects? sounds;
 
   SoundEffects get soundEffects => sounds ?? SoundEffects.silent;
+
+  /// Premium PIN lock; null disables the feature (tests, previews).
+  final AppLockStore? appLock;
+
+  /// Fingerprint / face unlock; null when unavailable.
+  final BiometricAuth? biometrics;
 }

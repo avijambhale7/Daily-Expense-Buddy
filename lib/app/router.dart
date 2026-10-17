@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../core/dates/local_date.dart';
 import '../core/widgets/common.dart';
+import '../features/app_lock/app_lock_settings_page.dart';
 import '../features/auth/cubit/auth_cubit.dart';
 import '../features/auth/presentation/auth_pages.dart';
 import '../features/auth/presentation/email_action_page.dart';
@@ -16,9 +17,12 @@ import '../features/calendar/presentation/day_detail_page.dart';
 import '../features/categories/presentation/categories_page.dart';
 import '../features/dashboard/presentation/dashboard_page.dart';
 import '../features/expenses/presentation/expense_form_page.dart';
+import '../features/goals/presentation/goals_page.dart';
 import '../features/history/presentation/history_page.dart';
 import '../features/loans/presentation/loans_page.dart';
 import '../features/premium/presentation/premium_page.dart';
+import '../features/recurring/presentation/recurring_page.dart';
+import '../features/reports/presentation/advanced_reports_page.dart';
 import '../features/reports/presentation/reports_page.dart';
 import '../features/settings/presentation/account_page.dart';
 import '../features/settings/presentation/privacy_page.dart';
@@ -242,6 +246,22 @@ GoRouter buildRouter({
                   GoRoute(
                     path: 'privacy',
                     builder: (_, _) => _protected(const PrivacyPage()),
+                  ),
+                  GoRoute(
+                    path: 'recurring',
+                    builder: (_, _) => _protected(const RecurringPage()),
+                  ),
+                  GoRoute(
+                    path: 'goals',
+                    builder: (_, _) => _protected(const GoalsPage()),
+                  ),
+                  GoRoute(
+                    path: 'advanced-reports',
+                    builder: (_, _) => _protected(const AdvancedReportsPage()),
+                  ),
+                  GoRoute(
+                    path: 'app-lock',
+                    builder: (_, _) => _protected(const AppLockSettingsPage()),
                   ),
                 ],
               ),

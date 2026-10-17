@@ -1,5 +1,6 @@
 package com.dailyexpensebuddy.app
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+// FragmentActivity is required by local_auth (fingerprint unlock).
+class MainActivity : FlutterFragmentActivity()

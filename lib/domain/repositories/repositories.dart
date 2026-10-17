@@ -6,7 +6,10 @@ import '../models/expense.dart';
 import '../models/expense_category.dart';
 import '../models/expense_filter.dart';
 import '../models/loan.dart';
+import '../models/membership.dart';
 import '../models/premium_entitlement.dart';
+import '../models/recurring_expense.dart';
+import '../models/savings_goal.dart';
 import '../models/user_preferences.dart';
 import '../models/user_profile.dart';
 
@@ -171,4 +174,60 @@ abstract interface class UserDataRepository {
   /// Throws [AppFailure] with [FailureKind.network] when the server cannot
   /// be reached.
   Future<void> checkServerReachable();
+}
+
+/// The signed-in user's side of premium membership.
+abstract interface class MembershipRepository {
+  /// True when the security rules let this account use the admin console.
+  Future<bool> isAdmin();
+
+  /// Emits the ban record while this account is banned, else null.
+  Stream<BanInfo?> watchBan();
+  Stream<PremiumConfig> watchConfig();
+
+  /// This user's requests, newest first.
+  Stream<List<PremiumRequest>> watchMyRequests();
+  Future<void> requestTrial({String? message});
+  Future<void> requestActivation({
+    required String upiRef,
+    required int amountPaise,
+    String? message,
+  });
+}
+
+/// Admin console operations. Every write is also enforced by the rules.
+abstract interface class AdminRepository {
+  /// Newest first; [pendingOnly] narrows to undecided requests.
+  Stream<List<PremiumRequest>> watchRequests({bool pendingOnly = false});
+  Stream<List<AdminUser>> watchUsers();
+
+  /// uids of banned accounts.
+  Stream<Set<String>> watchBannedUids();
+  Future<AdminUserDetail> userDetail(String uid);
+
+  Future<void> approve(PremiumRequest request, {required PremiumConfig config});
+  Future<void> reject(PremiumRequest request, {String? note});
+
+  /// Sets premium to end at [until]; null removes it.
+  Future<void> setPremium(String uid, DateTime? until);
+  Future<void> ban(String uid, {String? reason});
+  Future<void> unban(String uid);
+  Future<void> saveConfig(PremiumConfig config);
+}
+
+/// Premium: recurring expense templates.
+abstract interface class RecurringRepository {
+  String newId();
+  Stream<List<RecurringExpense>> watchAll();
+  Future<SaveOutcome> save(RecurringExpense template, {required bool isNew});
+  Future<SaveOutcome> markPosted(String id, LocalDate date);
+  Future<SaveOutcome> delete(String id);
+}
+
+/// Premium: savings goals.
+abstract interface class GoalRepository {
+  String newId();
+  Stream<List<SavingsGoal>> watchAll();
+  Future<SaveOutcome> save(SavingsGoal goal, {required bool isNew});
+  Future<SaveOutcome> delete(String id);
 }

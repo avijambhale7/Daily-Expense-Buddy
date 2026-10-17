@@ -30,6 +30,8 @@ class FirestoreUserStore {
     'budget_alerts',
     'daily_status',
     'loans',
+    'recurring',
+    'goals',
     'settings',
     'entitlements',
   ];
@@ -49,6 +51,10 @@ class FirestoreUserStore {
       userDoc.collection('daily_status');
   CollectionReference<Map<String, dynamic>> get loans =>
       userDoc.collection('loans');
+  CollectionReference<Map<String, dynamic>> get recurring =>
+      userDoc.collection('recurring');
+  CollectionReference<Map<String, dynamic>> get goals =>
+      userDoc.collection('goals');
   DocumentReference<Map<String, dynamic>> get preferences =>
       userDoc.collection('settings').doc('preferences');
   DocumentReference<Map<String, dynamic>> get premium =>

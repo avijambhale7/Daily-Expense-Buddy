@@ -27,6 +27,10 @@ abstract final class Routes {
   static const reminders = '/settings/reminders';
   static const premium = '/settings/premium';
   static const privacy = '/settings/privacy';
+  static const recurring = '/settings/recurring';
+  static const goals = '/settings/goals';
+  static const advancedReports = '/settings/advanced-reports';
+  static const appLock = '/settings/app-lock';
 
   static const publicRoutes = {
     onboarding,

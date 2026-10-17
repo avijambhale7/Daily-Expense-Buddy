@@ -255,15 +255,24 @@ class FirestoreUserDataRepository implements UserDataRepository {
   Future<void> ensureProfile(UserProfile profile) async {
     try {
       final snap = await _store.userDoc.get();
+      // The email lets the admin console identify accounts; the rules only
+      // accept the signed-in user's own (token) email.
       if (!snap.exists) {
         await _store.userDoc.set({
           'displayName': profile.displayName ?? '',
+          'email': profile.email,
           'createdAt': FieldValue.serverTimestamp(),
           'schemaVersion': 1,
         });
-      } else if ((snap.data()?['displayName'] ?? '') !=
-          (profile.displayName ?? '')) {
-        await _store.userDoc.update({'displayName': profile.displayName ?? ''});
+      } else {
+        final data = snap.data() ?? const {};
+        final changes = <String, Object?>{
+          if ((data['displayName'] ?? '') != (profile.displayName ?? ''))
+            'displayName': profile.displayName ?? '',
+          if (profile.email.isNotEmpty && data['email'] != profile.email)
+            'email': profile.email,
+        };
+        if (changes.isNotEmpty) await _store.userDoc.update(changes);
       }
     } catch (e) {
       AppLogger.warn('UserData', 'ensureProfile failed', e);

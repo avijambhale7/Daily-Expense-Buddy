@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/errors/app_failure.dart';
 import '../../data/firebase/firestore_expense_repository.dart';
 import '../../data/firebase/firestore_loan_repository.dart';
+import '../../data/firebase/firestore_membership_repository.dart';
+import '../../data/firebase/firestore_premium_repositories.dart';
 import '../../data/firebase/firestore_repositories.dart';
 import '../../data/firebase/firestore_user_store.dart';
 import '../../data/firebase/write_tracker.dart';
@@ -26,6 +28,10 @@ class UserSession {
     required this.entitlements,
     required this.userData,
     required this.syncIssues,
+    required this.membership,
+    required this.admin,
+    required this.recurring,
+    required this.goals,
   });
 
   final UserProfile user;
@@ -38,6 +44,12 @@ class UserSession {
   final EntitlementRepository entitlements;
   final UserDataRepository userData;
   final Stream<AppFailure> syncIssues;
+  final MembershipRepository membership;
+
+  /// Admin console operations; the rules reject them for non-admins.
+  final AdminRepository admin;
+  final RecurringRepository recurring;
+  final GoalRepository goals;
 
   String get uid => user.uid;
 }
@@ -47,6 +59,7 @@ typedef UserSessionFactory = UserSession Function(UserProfile user);
 UserSessionFactory firestoreSessionFactory({
   required FirebaseFirestore db,
   required String locale,
+  bool checkAdmin = true,
 }) {
   return (user) {
     final store = FirestoreUserStore(db, user.uid);
@@ -63,6 +76,16 @@ UserSessionFactory firestoreSessionFactory({
       entitlements: FirestoreEntitlementRepository(store),
       userData: FirestoreUserDataRepository(store),
       syncIssues: reporter.issues,
+      membership: FirestoreMembershipRepository(
+        db,
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName ?? '',
+        checkAdmin: checkAdmin,
+      ),
+      admin: FirestoreAdminRepository(db, adminEmail: user.email),
+      recurring: FirestoreRecurringRepository(store, tracker),
+      goals: FirestoreGoalRepository(store, tracker),
     );
   };
 }

@@ -18,6 +18,7 @@ import '../../../domain/models/user_preferences.dart';
 import '../../../services/sound/sound_effects.dart';
 import '../../auth/cubit/auth_cubit.dart';
 import '../../auth/presentation/onboarding_page.dart';
+import '../../premium/premium_gate.dart';
 import '../../export/export_dialog.dart';
 
 /// Signs out after warning about changes that have not synced yet.
@@ -270,6 +271,43 @@ class SettingsPage extends StatelessWidget {
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: () => context.go(Routes.categories),
                   ),
+                ]),
+                section('Premium features', [
+                  for (final (icon, title, subtitle, route) in const [
+                    (
+                      Icons.insights_rounded,
+                      'Advanced reports & PDF',
+                      '12-month trends and monthly statements',
+                      Routes.advancedReports,
+                    ),
+                    (
+                      Icons.event_repeat_rounded,
+                      'Recurring expenses',
+                      'Rent, bills and EMIs added automatically',
+                      Routes.recurring,
+                    ),
+                    (
+                      Icons.flag_rounded,
+                      'Savings goals',
+                      'Save towards a target',
+                      Routes.goals,
+                    ),
+                    (
+                      Icons.lock_outline_rounded,
+                      'App lock',
+                      'PIN or fingerprint',
+                      Routes.appLock,
+                    ),
+                  ])
+                    ListTile(
+                      leading: Icon(icon),
+                      title: Text(title),
+                      subtitle: Text(subtitle),
+                      trailing: isPremium
+                          ? const Icon(Icons.chevron_right_rounded)
+                          : const PremiumTag(),
+                      onTap: () => context.go(route),
+                    ),
                 ]),
                 section('Data & privacy', [
                   ListTile(

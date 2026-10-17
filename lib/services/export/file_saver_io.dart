@@ -26,3 +26,23 @@ Future<FileSaveResult> saveText({
       ? FileSaveResult.dismissed
       : FileSaveResult.shared;
 }
+
+Future<FileSaveResult> saveBytes({
+  required String fileName,
+  required List<int> bytes,
+  required String mimeType,
+}) async {
+  final dir = await getTemporaryDirectory();
+  final file = File('${dir.path}/${FileSaver.sanitize(fileName)}');
+  await file.writeAsBytes(bytes);
+  final result = await SharePlus.instance.share(
+    ShareParams(
+      files: [XFile(file.path, mimeType: mimeType)],
+      subject: 'Daily Expense Buddy statement',
+      title: 'Share statement',
+    ),
+  );
+  return result.status == ShareResultStatus.dismissed
+      ? FileSaveResult.dismissed
+      : FileSaveResult.shared;
+}
